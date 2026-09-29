@@ -8,6 +8,7 @@ import { Dashboard } from "./features/dashboard/Dashboard";
 
 import { ModuleHost } from "./features/modules/ModuleHost";
 import { ModuleErrorBoundary } from "./features/modules/ModuleErrorBoundary";
+import { SettingsPage } from "./features/settings/SettingsPage";
 
 import {
   closeModule,
@@ -171,13 +172,8 @@ export default function App() {
           />
         );
 
-      case "settings":
-        return (
-          <PlaceholderPage
-            title="Settings"
-            description="Global KNeuron settings will live here. Module-specific settings remain inside their respective modules."
-          />
-        );
+    case "settings":
+      return <SettingsPage />;
 
       default: {
         const exhaustiveCheck: never = route.page;

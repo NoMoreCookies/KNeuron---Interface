@@ -3,17 +3,20 @@ import ReactDOM from "react-dom/client";
 
 import App from "./App";
 
+import { APP_CONFIG } from "./config/appConfig";
 import { registerDevelopmentModules } from "./features/modules/registerDevelopmentModules";
 
 import "./styles/app.css";
 
 /**
- * Register development modules before React renders the Dashboard.
+ * Development modules are registered only while KNeuron
+ * is running in development mode.
  *
- * In production this bootstrap step will eventually be replaced by
- * real module discovery/loading.
+ * Production builds start with a clean module registry.
  */
-registerDevelopmentModules();
+if (APP_CONFIG.enableDevelopmentModules) {
+  registerDevelopmentModules();
+}
 
 ReactDOM.createRoot(
   document.getElementById("root")!,
