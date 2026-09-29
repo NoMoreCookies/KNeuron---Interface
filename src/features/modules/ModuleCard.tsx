@@ -5,9 +5,7 @@ import type { RegisteredModule } from "../../types/module";
 interface ModuleCardProps {
   module: RegisteredModule;
 
-  onOpen:
-    | ((moduleId: string) => void)
-    | ((moduleId: string) => Promise<void>);
+  onOpen: ((moduleId: string) => void) | ((moduleId: string) => Promise<void>);
 }
 
 /**
@@ -15,19 +13,10 @@ interface ModuleCardProps {
  *
  * ModuleCard contains no lifecycle implementation.
  */
-export function ModuleCard({
-  module,
-  onOpen,
-}: ModuleCardProps) {
-  const {
-    manifest,
-    status,
-  } = module;
+export function ModuleCard({ module, onOpen }: ModuleCardProps) {
+  const { manifest, status } = module;
 
-  const isOpenDisabled =
-    status === "disabled" ||
-    status === "starting" ||
-    status === "running";
+  const isOpenDisabled = status === "disabled" || status === "starting" || status === "running";
 
   let buttonLabel = "Open";
 
@@ -45,43 +34,24 @@ export function ModuleCard({
 
   return (
     <article className="module-card">
-      <ModuleThumbnail
-        src={manifest.appearance.thumbnail}
-        name={manifest.name}
-      />
+      <ModuleThumbnail src={manifest.appearance.thumbnail} name={manifest.name} />
 
       <div className="module-card__content">
         <div className="module-card__header">
-          <h2 className="module-card__title">
-            {manifest.name}
-          </h2>
+          <h2 className="module-card__title">{manifest.name}</h2>
 
-          <span className="module-card__version">
-            v{manifest.version}
-          </span>
+          <span className="module-card__version">v{manifest.version}</span>
         </div>
 
-        <p className="module-card__description">
-          {manifest.description}
-        </p>
+        <p className="module-card__description">{manifest.description}</p>
 
         <div className="module-card__meta">
-          <span>
-            {manifest.category}
-          </span>
+          <span>{manifest.category}</span>
 
-          {manifest.capabilities.eeg?.required && (
-            <span>
-              EEG required
-            </span>
-          )}
+          {manifest.capabilities.eeg?.required && <span>EEG required</span>}
         </div>
 
-        {status === "error" && module.error && (
-          <p className="module-card__error">
-            {module.error}
-          </p>
-        )}
+        {status === "error" && module.error && <p className="module-card__error">{module.error}</p>}
 
         <button
           className="module-card__open"

@@ -10,10 +10,7 @@ interface ModuleThumbnailProps {
  *
  * A broken or missing thumbnail must never break the launcher layout.
  */
-export function ModuleThumbnail({
-  src,
-  name,
-}: ModuleThumbnailProps) {
+export function ModuleThumbnail({ src, name }: ModuleThumbnailProps) {
   const [imageFailed, setImageFailed] = useState(false);
 
   const showFallback = !src || imageFailed;

@@ -1,90 +1,85 @@
-/**
- * Version of the module manifest schema understood by this KNeuron Shell.
- *
- * This is intentionally independent from the module's own version.
- * If the manifest format changes in the future, schemaVersion lets the
- * shell determine whether it can safely load a module.
- */
 export type ModuleManifestSchemaVersion = 1;
 
-export type ModuleCategory =
-  | "BCI"
-  | "VISUALIZATION"
-  | "GAME"
-  | "ANALYSIS"
-  | "UTILITY";
+export type ModuleCategory = "BCI" | "VISUALIZATION" | "GAME" | "ANALYSIS" | "UTILITY";
 
+/**
+ * Visual metadata used by the KNeuron module launcher.
+ */
 export interface ModuleAppearance {
-  /**
-   * Path or URL used as the module card thumbnail.
-   * The shell is responsible for displaying a fallback when it is absent.
-   */
   thumbnail?: string;
 }
 
+/**
+ * EEG requirements declared by a KNeuron module.
+ *
+ * The module describes what it needs.
+ * It must not depend on any particular EEG manufacturer or device.
+ */
 export interface ModuleEEGCapability {
   /**
-   * Whether the module cannot operate without an EEG stream.
+   * Whether an EEG device is required at all.
    */
   required: boolean;
 
   /**
-   * Channels the module would prefer to receive.
+   * Channels without which the module cannot operate correctly.
    *
-   * They are preferences rather than a guarantee. DeviceManager will
-   * eventually resolve them against the connected hardware.
+   * Example for an SSVEP module:
+   * O1, O2, Oz, PO3, PO4, POz
+   */
+  requiredChannels?: string[];
+
+  /**
+   * Optional channels that may improve processing but are not mandatory.
    */
   preferredChannels?: string[];
 }
 
+/**
+ * Capabilities required or optionally used by a module.
+ *
+ * More capability types may be introduced later without tying modules
+ * directly to specific hardware implementations.
+ */
 export interface ModuleCapabilities {
   eeg?: ModuleEEGCapability;
 }
 
 /**
- * Public contract between a KNeuron module and the desktop shell.
- *
- * The shell should use this manifest for discovery and presentation.
- * It must not contain module-specific knowledge such as FBCCA parameters
- * or Cortex rendering settings.
+ * Immutable manifest describing a KNeuron module.
  */
 export interface KNeuronModuleManifest {
   schemaVersion: ModuleManifestSchemaVersion;
 
-  /**
-   * Stable machine-readable identifier.
-   *
-   * Example: "cortex-3d".
-   * This must not change merely because the visible module name changes.
-   */
   id: string;
 
   name: string;
+
   version: string;
+
   description: string;
+
   category: ModuleCategory;
 
   appearance: ModuleAppearance;
 
-  /**
-   * Logical route/entry point owned by the module.
-   *
-   * Example: "/modules/cortex-3d".
-   */
   entryPoint: string;
 
   capabilities: ModuleCapabilities;
 }
 
-export type ModuleRuntimeStatus =
-  | "available"
-  | "starting"
-  | "running"
-  | "error"
-  | "disabled";
+/**
+ * Runtime state of a registered KNeuron module.
+ */
+export type ModuleRuntimeStatus = "available" | "starting" | "running" | "error" | "disabled";
 
+/**
+ * Runtime representation stored inside ModuleRegistry.
+ */
 export interface RegisteredModule {
   manifest: KNeuronModuleManifest;
+
   status: ModuleRuntimeStatus;
+
   error?: string;
 }

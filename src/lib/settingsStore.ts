@@ -4,9 +4,7 @@ import type { AppSettings } from "../types/settings";
 
 const STORAGE_KEY = "kneuron.settings.v1";
 
-type SettingsListener = (
-  settings: AppSettings,
-) => void;
+type SettingsListener = (settings: AppSettings) => void;
 
 /**
  * Creates an independent copy of the default settings.
@@ -21,35 +19,34 @@ function createDefaultSettings(): AppSettings {
 }
 
 /**
- * Runtime validation for data loaded from browser storage.
+ * Converts persisted data into the current AppSettings schema.
  *
- * localStorage contains untrusted data from the application's perspective.
- * Never assume that persisted JSON still matches the current TypeScript type.
+ * Persisted settings must never be trusted blindly because:
+ * - the user may edit localStorage,
+ * - older KNeuron versions may contain obsolete fields,
+ * - the settings schema may change over time.
+ *
+ * Extra legacy properties are intentionally ignored.
  */
-function isAppSettings(
-  value: unknown,
-): value is AppSettings {
-  if (
-    typeof value !== "object" ||
-    value === null
-  ) {
-    return false;
+function parseAppSettings(value: unknown): AppSettings | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
   }
 
-  const candidate =
-    value as Partial<AppSettings>;
+  const candidate = value as Record<string, unknown>;
 
-  const validScale =
-    candidate.uiScale === 90 ||
-    candidate.uiScale === 100 ||
-    candidate.uiScale === 110;
+  if (
+    typeof candidate.confirmBeforeClosingModule !== "boolean" ||
+    typeof candidate.showDebugInformation !== "boolean"
+  ) {
+    return null;
+  }
 
-  return (
-    typeof candidate.animationsEnabled === "boolean" &&
-    validScale &&
-    typeof candidate.confirmBeforeClosingModule === "boolean" &&
-    typeof candidate.showDebugInformation === "boolean"
-  );
+  return {
+    confirmBeforeClosingModule: candidate.confirmBeforeClosingModule,
+
+    showDebugInformation: candidate.showDebugInformation,
+  };
 }
 
 /**
@@ -62,13 +59,12 @@ function isAppSettings(
  * - reset settings,
  * - notify subscribers.
  *
- * It deliberately contains no React code.
+ * This class deliberately contains no React code.
  */
 export class SettingsStore {
   private settings: AppSettings;
 
-  private readonly listeners =
-    new Set<SettingsListener>();
+  private readonly listeners = new Set<SettingsListener>();
 
   constructor() {
     this.settings = this.load();
@@ -84,20 +80,18 @@ export class SettingsStore {
   }
 
   /**
-   * Updates only the provided settings fields.
+   * Updates one or more settings.
    */
-  update(
-    patch: Partial<AppSettings>,
-  ): AppSettings {
-    const nextSettings: AppSettings = {
+  update(patch: Partial<AppSettings>): AppSettings {
+    const candidate = {
       ...this.settings,
       ...patch,
     };
 
-    if (!isAppSettings(nextSettings)) {
-      throw new Error(
-        "Attempted to save invalid KNeuron settings.",
-      );
+    const nextSettings = parseAppSettings(candidate);
+
+    if (!nextSettings) {
+      throw new Error("Attempted to save invalid KNeuron settings.");
     }
 
     this.settings = nextSettings;
@@ -109,7 +103,7 @@ export class SettingsStore {
   }
 
   /**
-   * Restores application defaults.
+   * Restores the default application settings.
    */
   reset(): AppSettings {
     this.settings = createDefaultSettings();
@@ -122,10 +116,10 @@ export class SettingsStore {
 
   /**
    * Subscribes to settings changes.
+   *
+   * The returned callback removes the listener.
    */
-  subscribe(
-    listener: SettingsListener,
-  ): () => void {
+  subscribe(listener: SettingsListener): () => void {
     this.listeners.add(listener);
 
     return () => {
@@ -133,53 +127,53 @@ export class SettingsStore {
     };
   }
 
+  /**
+   * Loads and validates persisted settings.
+   *
+   * Older settings objects may still contain removed properties such as
+   * uiScale or animationsEnabled. parseAppSettings() intentionally strips
+   * those fields instead of treating the entire object as invalid.
+   */
   private load(): AppSettings {
     try {
-      const raw =
-        window.localStorage.getItem(
-          STORAGE_KEY,
-        );
+      const raw = window.localStorage.getItem(STORAGE_KEY);
 
       if (!raw) {
         return createDefaultSettings();
       }
 
-      const parsed: unknown =
-        JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
 
-      if (!isAppSettings(parsed)) {
-        console.warn(
-          "[KNeuron] Invalid persisted settings. Falling back to defaults.",
-        );
+      const settings = parseAppSettings(parsed);
+
+      if (!settings) {
+        console.warn("[KNeuron] Invalid persisted settings. Falling back to defaults.");
 
         return createDefaultSettings();
       }
 
-      return parsed;
+      return settings;
     } catch (error) {
-      console.warn(
-        "[KNeuron] Failed to load settings. Falling back to defaults.",
-        error,
-      );
+      console.warn("[KNeuron] Failed to load settings. Falling back to defaults.", error);
 
       return createDefaultSettings();
     }
   }
 
+  /**
+   * Persists the current settings snapshot.
+   */
   private persist(): void {
     try {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(this.settings),
-      );
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
     } catch (error) {
-      console.error(
-        "[KNeuron] Failed to persist settings.",
-        error,
-      );
+      console.error("[KNeuron] Failed to persist settings.", error);
     }
   }
 
+  /**
+   * Notifies all active subscribers.
+   */
   private emit(): void {
     const snapshot = this.get();
 
@@ -189,5 +183,4 @@ export class SettingsStore {
   }
 }
 
-export const settingsStore =
-  new SettingsStore();
+export const settingsStore = new SettingsStore();

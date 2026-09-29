@@ -1,9 +1,6 @@
 import { moduleRegistry } from "../../lib/moduleRegistry";
 
-import type {
-  ModuleRuntimeStatus,
-  RegisteredModule,
-} from "../../types/module";
+import type { ModuleRuntimeStatus, RegisteredModule } from "../../types/module";
 
 /**
  * Defines legal runtime state transitions.
@@ -14,36 +11,16 @@ import type {
  *
  * without going through the expected startup lifecycle.
  */
-const ALLOWED_TRANSITIONS: Record<
-  ModuleRuntimeStatus,
-  readonly ModuleRuntimeStatus[]
-> = {
-  available: [
-    "starting",
-    "disabled",
-  ],
+const ALLOWED_TRANSITIONS: Record<ModuleRuntimeStatus, readonly ModuleRuntimeStatus[]> = {
+  available: ["starting", "disabled"],
 
-  starting: [
-    "running",
-    "error",
-    "available",
-  ],
+  starting: ["running", "error", "available"],
 
-  running: [
-    "available",
-    "error",
-    "disabled",
-  ],
+  running: ["available", "error", "disabled"],
 
-  error: [
-    "starting",
-    "available",
-    "disabled",
-  ],
+  error: ["starting", "available", "disabled"],
 
-  disabled: [
-    "available",
-  ],
+  disabled: ["available"],
 };
 
 /**
@@ -55,15 +32,11 @@ export class ModuleManager {
   /**
    * Starts a registered module.
    */
-  async start(
-    moduleId: string,
-  ): Promise<RegisteredModule> {
+  async start(moduleId: string): Promise<RegisteredModule> {
     const registeredModule = this.requireModule(moduleId);
 
     if (registeredModule.status === "disabled") {
-      throw new Error(
-        `Module "${moduleId}" is disabled.`,
-      );
+      throw new Error(`Module "${moduleId}" is disabled.`);
     }
 
     /**
@@ -79,10 +52,7 @@ export class ModuleManager {
       return registeredModule;
     }
 
-    this.transition(
-      moduleId,
-      "starting",
-    );
+    this.transition(moduleId, "starting");
 
     try {
       /**
@@ -93,21 +63,11 @@ export class ModuleManager {
        */
       await Promise.resolve();
 
-      return this.transition(
-        moduleId,
-        "running",
-      );
+      return this.transition(moduleId, "running");
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Unknown module startup error.";
+      const message = error instanceof Error ? error.message : "Unknown module startup error.";
 
-      this.transition(
-        moduleId,
-        "error",
-        message,
-      );
+      this.transition(moduleId, "error", message);
 
       throw error;
     }
@@ -127,10 +87,7 @@ export class ModuleManager {
       return registeredModule;
     }
 
-    return this.transition(
-      moduleId,
-      "available",
-    );
+    return this.transition(moduleId, "available");
   }
 
   /**
@@ -138,26 +95,16 @@ export class ModuleManager {
    *
    * ModuleErrorBoundary will use this method when module rendering crashes.
    */
-  fail(
-    moduleId: string,
-    error: unknown,
-  ): RegisteredModule {
+  fail(moduleId: string, error: unknown): RegisteredModule {
     const registeredModule = this.requireModule(moduleId);
 
-    const message =
-      error instanceof Error
-        ? error.message
-        : String(error);
+    const message = error instanceof Error ? error.message : String(error);
 
     if (registeredModule.status === "error") {
       return registeredModule;
     }
 
-    return this.transition(
-      moduleId,
-      "error",
-      message,
-    );
+    return this.transition(moduleId, "error", message);
   }
 
   /**
@@ -167,9 +114,7 @@ export class ModuleManager {
     const registeredModule = moduleRegistry.get(moduleId);
 
     if (!registeredModule) {
-      throw new Error(
-        `Module "${moduleId}" is not registered.`,
-      );
+      throw new Error(`Module "${moduleId}" is not registered.`);
     }
 
     return registeredModule;
@@ -185,8 +130,7 @@ export class ModuleManager {
   ): RegisteredModule {
     const currentModule = this.requireModule(moduleId);
 
-    const allowedTargets =
-      ALLOWED_TRANSITIONS[currentModule.status];
+    const allowedTargets = ALLOWED_TRANSITIONS[currentModule.status];
 
     if (!allowedTargets.includes(targetStatus)) {
       throw new Error(
@@ -195,11 +139,7 @@ export class ModuleManager {
       );
     }
 
-    return moduleRegistry.setRuntimeState(
-      moduleId,
-      targetStatus,
-      error,
-    );
+    return moduleRegistry.setRuntimeState(moduleId, targetStatus, error);
   }
 }
 

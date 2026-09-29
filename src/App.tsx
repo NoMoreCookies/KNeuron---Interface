@@ -1,81 +1,57 @@
 import { useState } from "react";
 
+import { APP_CONFIG } from "./config/appConfig";
+
 import { TitleBar } from "./components/TitleBar";
+
 import { Sidebar } from "./components/Sidebar";
+
 import { DevicePanel } from "./components/DevicePanel";
 
 import { Dashboard } from "./features/dashboard/Dashboard";
 
-import { ModuleHost } from "./features/modules/ModuleHost";
-import { ModuleErrorBoundary } from "./features/modules/ModuleErrorBoundary";
+import { DevicePage } from "./features/device/DevicePage";
+
 import { SettingsPage } from "./features/settings/SettingsPage";
 
-import {
-  closeModule,
-  launchModule,
-} from "./features/modules/moduleLauncher";
+import { useSettings } from "./features/settings/useSettings";
 
-import type {
-  AppRoute,
-  ShellPage,
-} from "./types/navigation";
+import { ModuleHost } from "./features/modules/ModuleHost";
 
-/**
- * Placeholder used by shell-level pages that are not implemented yet.
- */
-function PlaceholderPage({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <section className="placeholder-page">
-      <span className="eyebrow">
-        KNEURON
-      </span>
+import { ModuleErrorBoundary } from "./features/modules/ModuleErrorBoundary";
 
-      <h1>
-        {title}
-      </h1>
+import { closeModule, launchModule } from "./features/modules/moduleLauncher";
 
-      <p>
-        {description}
-      </p>
+import { NotificationCenter } from "./features/notifications/NotificationCenter";
 
-      <div className="architecture-note">
-        <strong>
-          Shell boundary
-        </strong>
+import { DebugPanel } from "./features/debug/DebugPanel";
 
-        <span>
-          This screen belongs to the KNeuron Shell and remains independent
-          from individual modules.
-        </span>
-      </div>
-    </section>
-  );
+import { logger } from "./lib/logger";
+
+import { notificationStore } from "./lib/notificationStore";
+
+import type { AppRoute, ShellPage } from "./types/navigation";
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 /**
  * Root component of the KNeuron desktop shell.
  */
 export default function App() {
+  const { settings } = useSettings();
+
   const [route, setRoute] = useState<AppRoute>({
     kind: "shell",
     page: "dashboard",
   });
 
-  /**
-   * Starts a module first.
-   *
-   * Navigation happens only after ModuleManager confirms that the module
-   * reached the running state.
-   */
-  async function handleOpenModule(
-    moduleId: string,
-  ): Promise<void> {
+  async function handleOpenModule(moduleId: string): Promise<void> {
     try {
       await launchModule(moduleId);
 
@@ -84,26 +60,59 @@ export default function App() {
         moduleId,
       });
     } catch (error) {
-      console.error(
-        `[KNeuron] Failed to launch module "${moduleId}".`,
-        error,
-      );
+      const message = getErrorMessage(error);
+
+      logger.error("Shell", `Failed to launch module "${moduleId}": ${message}`);
+
+      notificationStore.add({
+        type: "error",
+        title: "Module failed to start",
+        message,
+        durationMs: 6000,
+      });
     }
   }
 
-  /**
-   * Leaves an active module and returns to the Dashboard.
-   */
+  function confirmModuleExit(): boolean {
+    if (route.kind !== "module" || !settings.confirmBeforeClosingModule) {
+      return true;
+    }
+
+    return window.confirm("Leave the currently running module?");
+  }
+
+  function stopActiveModule(): boolean {
+    if (route.kind !== "module") {
+      return true;
+    }
+
+    try {
+      closeModule(route.moduleId);
+
+      return true;
+    } catch (error) {
+      const message = getErrorMessage(error);
+
+      logger.error("Shell", `Failed to close module "${route.moduleId}": ${message}`);
+
+      notificationStore.add({
+        type: "error",
+        title: "Module failed to close",
+        message,
+        durationMs: 6000,
+      });
+
+      return false;
+    }
+  }
+
   function handleReturnToDashboard(): void {
-    if (route.kind === "module") {
-      try {
-        closeModule(route.moduleId);
-      } catch (error) {
-        console.error(
-          `[KNeuron] Failed to close module "${route.moduleId}".`,
-          error,
-        );
-      }
+    if (!confirmModuleExit()) {
+      return;
+    }
+
+    if (!stopActiveModule()) {
+      return;
     }
 
     setRoute({
@@ -112,23 +121,17 @@ export default function App() {
     });
   }
 
-  /**
-   * Handles shell navigation from Sidebar.
-   *
-   * Navigating away while a module is open first stops the active module.
-   */
-  function handleShellNavigation(
-    page: ShellPage,
-  ): void {
-    if (route.kind === "module") {
-      try {
-        closeModule(route.moduleId);
-      } catch (error) {
-        console.error(
-          `[KNeuron] Failed to close active module.`,
-          error,
-        );
-      }
+  function handleShellNavigation(page: ShellPage): void {
+    if (route.kind === "shell" && route.page === page) {
+      return;
+    }
+
+    if (!confirmModuleExit()) {
+      return;
+    }
+
+    if (!stopActiveModule()) {
+      return;
     }
 
     setRoute({
@@ -137,9 +140,6 @@ export default function App() {
     });
   }
 
-  /**
-   * Renders the central content area.
-   */
   function renderContent() {
     if (route.kind === "module") {
       return (
@@ -148,32 +148,20 @@ export default function App() {
           moduleId={route.moduleId}
           onReturnToDashboard={handleReturnToDashboard}
         >
-          <ModuleHost
-            moduleId={route.moduleId}
-            onBack={handleReturnToDashboard}
-          />
+          <ModuleHost moduleId={route.moduleId} onBack={handleReturnToDashboard} />
         </ModuleErrorBoundary>
       );
     }
 
     switch (route.page) {
       case "dashboard":
-        return (
-          <Dashboard
-            onOpenModule={handleOpenModule}
-          />
-        );
+        return <Dashboard onOpenModule={handleOpenModule} />;
 
       case "device":
-        return (
-          <PlaceholderPage
-            title="Device"
-            description="EEG devices and device adapters will appear here once the KNeuron Device Layer is integrated."
-          />
-        );
+        return <DevicePage />;
 
-    case "settings":
-      return <SettingsPage />;
+      case "settings":
+        return <SettingsPage />;
 
       default: {
         const exhaustiveCheck: never = route.page;
@@ -183,36 +171,25 @@ export default function App() {
     }
   }
 
-  /**
-   * While a module is active, Dashboard remains the logical parent
-   * navigation item.
-   */
-  const activeSidebarPage: ShellPage =
-    route.kind === "shell"
-      ? route.page
-      : "dashboard";
+  const activeSidebarPage: ShellPage = route.kind === "shell" ? route.page : "dashboard";
 
   const isModuleOpen = route.kind === "module";
+
+  const shellClassName = isModuleOpen ? "app-shell app-shell--module-open" : "app-shell";
+
   return (
-    <div
-      className={
-        isModuleOpen
-          ? "app-shell app-shell--module-open"
-          : "app-shell"
-      }
-    >
+    <div className={shellClassName}>
       <TitleBar />
 
-      <Sidebar
-        page={activeSidebarPage}
-        onNavigate={handleShellNavigation}
-      />
+      <Sidebar page={activeSidebarPage} onNavigate={handleShellNavigation} />
 
-      <main className="main-content">
-        {renderContent()}
-      </main>
+      <main className="main-content">{renderContent()}</main>
 
       <DevicePanel />
+
+      <NotificationCenter />
+
+      {APP_CONFIG.enableDeveloperTools && settings.showDebugInformation && <DebugPanel />}
     </div>
   );
 }

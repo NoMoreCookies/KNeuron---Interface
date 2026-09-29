@@ -16,8 +16,7 @@ export const developmentModules: KNeuronModuleManifest[] = [
 
     version: "1.0.0",
 
-    description:
-      "Development module used to verify the KNeuron module launcher.",
+    description: "Development module used to verify the KNeuron module launcher.",
 
     category: "UTILITY",
 

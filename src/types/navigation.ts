@@ -1,10 +1,7 @@
 /**
  * Pages owned directly by the KNeuron Shell.
  */
-export type ShellPage =
-  | "dashboard"
-  | "device"
-  | "settings";
+export type ShellPage = "dashboard" | "device" | "settings";
 
 /**
  * Application-level route.

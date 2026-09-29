@@ -1,7 +1,4 @@
-import type {
-  KNeuronModuleManifest,
-  ModuleCategory,
-} from "../types/module";
+import type { KNeuronModuleManifest, ModuleCategory } from "../types/module";
 
 /**
  * Module identifiers are deliberately restrictive.
@@ -38,21 +35,15 @@ export interface ModuleValidationResult {
  * Validation belongs at the boundary of the module system. Invalid
  * manifests must never enter ModuleRegistry.
  */
-export function validateModuleManifest(
-  manifest: KNeuronModuleManifest,
-): ModuleValidationResult {
+export function validateModuleManifest(manifest: KNeuronModuleManifest): ModuleValidationResult {
   const errors: string[] = [];
 
   if (manifest.schemaVersion !== 1) {
-    errors.push(
-      `Unsupported manifest schema version: ${manifest.schemaVersion}.`,
-    );
+    errors.push(`Unsupported manifest schema version: ${manifest.schemaVersion}.`);
   }
 
   if (!manifest.id || !MODULE_ID_PATTERN.test(manifest.id)) {
-    errors.push(
-      "Module ID must contain only lowercase letters, numbers and hyphens.",
-    );
+    errors.push("Module ID must contain only lowercase letters, numbers and hyphens.");
   }
 
   if (!manifest.name?.trim()) {
@@ -68,17 +59,13 @@ export function validateModuleManifest(
   }
 
   if (!ALLOWED_CATEGORIES.includes(manifest.category)) {
-    errors.push(
-      `Unsupported module category: ${String(manifest.category)}.`,
-    );
+    errors.push(`Unsupported module category: ${String(manifest.category)}.`);
   }
 
   const expectedEntryPoint = `/modules/${manifest.id}`;
 
   if (manifest.entryPoint !== expectedEntryPoint) {
-    errors.push(
-      `Module entry point must be "${expectedEntryPoint}".`,
-    );
+    errors.push(`Module entry point must be "${expectedEntryPoint}".`);
   }
 
   return {

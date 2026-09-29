@@ -9,10 +9,6 @@ import type { AppSettings } from "../types/settings";
  * - after the user resets settings.
  */
 export const DEFAULT_SETTINGS: AppSettings = {
-  animationsEnabled: true,
-
-  uiScale: 100,
-
   confirmBeforeClosingModule: true,
 
   showDebugInformation: false,

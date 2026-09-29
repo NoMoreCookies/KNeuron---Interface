@@ -1,0 +1,474 @@
+import { deviceManager, type DeviceManager } from "../devices/deviceManager";
+
+import { isEEGDeviceAdapter } from "../devices/contracts/deviceGuards";
+
+import type { EEGDeviceAdapter } from "../devices/contracts/EEGDeviceAdapter";
+
+import type { EEGChannelInfo, EEGStreamInfo } from "../devices/models/eeg";
+
+import { resolveEEGChannels } from "../devices/eeg/channelSelection";
+
+import { logger } from "../../lib/logger";
+
+import { EEGRingBuffer } from "./EEGRingBuffer";
+
+import type {
+  EEGConsumerBatch,
+  EEGConsumerBatchListener,
+  EEGSampleBatch,
+  EEGWindow,
+} from "./models";
+
+export interface EEGStreamRequest {
+  /**
+   * "all" means every channel exposed by the current EEG device.
+   *
+   * A string array requests only selected channel labels.
+   */
+  channels: "all" | readonly string[];
+
+  /**
+   * Optional real-time callback.
+   */
+  onBatch?: EEGConsumerBatchListener;
+}
+
+export interface EEGStreamHandle {
+  readonly id: number;
+
+  readonly channels: readonly Readonly<EEGChannelInfo>[];
+
+  readonly streamInfo: Readonly<EEGStreamInfo>;
+
+  /**
+   * Releases this consumer.
+   *
+   * The underlying physical EEG stream is stopped only after the final
+   * consumer releases its handle.
+   */
+  release(): Promise<void>;
+}
+
+interface ConsumerRecord {
+  channels: readonly Readonly<EEGChannelInfo>[];
+
+  channelIndices: readonly number[];
+
+  listener?: EEGConsumerBatchListener;
+}
+
+interface EEGStreamServiceOptions {
+  /**
+   * Number of seconds retained in the shared history buffer.
+   */
+  bufferDurationSeconds?: number;
+}
+
+const DEFAULT_BUFFER_DURATION_SECONDS = 15;
+
+/**
+ * Shared application-level EEG stream coordinator.
+ *
+ * One physical EEG adapter stream can serve many independent modules.
+ *
+ * Example:
+ *
+ * BrainAccess 32ch
+ *       |
+ *       +--> Cortex: all 32 channels
+ *       |
+ *       +--> SSVEP: O1/O2/Oz/PO3/PO4/POz
+ *
+ * The underlying adapter is started only once.
+ */
+export class EEGStreamService {
+  private readonly consumers = new Map<number, ConsumerRecord>();
+
+  private nextConsumerId = 1;
+
+  private activeAdapter: EEGDeviceAdapter | null = null;
+
+  private streamInfo: Readonly<EEGStreamInfo> | null = null;
+
+  private ringBuffer: EEGRingBuffer | null = null;
+
+  private sampleUnsubscribe: (() => void) | null = null;
+
+  private initialization: Promise<void> | null = null;
+
+  private readonly bufferDurationSeconds: number;
+
+  constructor(
+    private readonly manager: DeviceManager = deviceManager,
+
+    options: EEGStreamServiceOptions = {},
+  ) {
+    this.bufferDurationSeconds = options.bufferDurationSeconds ?? DEFAULT_BUFFER_DURATION_SECONDS;
+
+    if (this.bufferDurationSeconds <= 0) {
+      throw new Error("EEG stream buffer duration must be greater than zero.");
+    }
+  }
+
+  /**
+   * Acquires access to the shared EEG stream.
+   *
+   * The first consumer starts the adapter stream.
+   * Additional consumers reuse the same physical stream.
+   */
+  async acquire(request: EEGStreamRequest): Promise<EEGStreamHandle> {
+    const adapter = this.manager.getActiveAdapter();
+
+    if (!adapter) {
+      throw new Error("No active EEG device is connected.");
+    }
+
+    if (!isEEGDeviceAdapter(adapter)) {
+      throw new Error(`Active device "${adapter.info.id}" is not an EEG device.`);
+    }
+
+    if (adapter.getStatus().state !== "connected") {
+      throw new Error(`EEG device "${adapter.info.id}" is not connected.`);
+    }
+
+    if (
+      this.activeAdapter &&
+      this.activeAdapter.info.id !== adapter.info.id &&
+      this.consumers.size > 0
+    ) {
+      throw new Error("Cannot switch EEG devices while stream consumers are active.");
+    }
+
+    await this.ensureStreaming(adapter);
+
+    if (!this.streamInfo) {
+      throw new Error("EEG stream metadata is unavailable.");
+    }
+
+    const selection = this.resolveSelection(this.streamInfo, request.channels);
+
+    const consumerId = this.nextConsumerId++;
+
+    this.consumers.set(consumerId, {
+      channels: selection.channels,
+
+      channelIndices: selection.indices,
+
+      listener: request.onBatch,
+    });
+
+    let released = false;
+
+    return {
+      id: consumerId,
+
+      channels: selection.channels,
+
+      streamInfo: this.streamInfo,
+
+      release: async () => {
+        if (released) {
+          return;
+        }
+
+        released = true;
+
+        await this.releaseConsumer(consumerId);
+      },
+    };
+  }
+
+  /**
+   * Reads the latest history window from the shared ring buffer.
+   *
+   * The service must already be active through at least one acquired handle.
+   */
+  getLatestWindow(
+    durationSeconds: number,
+
+    requestedChannels: "all" | readonly string[] = "all",
+  ): EEGWindow {
+    if (durationSeconds <= 0) {
+      throw new Error("EEG window duration must be greater than zero.");
+    }
+
+    if (!this.streamInfo || !this.ringBuffer) {
+      throw new Error("EEG stream is not active.");
+    }
+
+    const selection = this.resolveSelection(this.streamInfo, requestedChannels);
+
+    const requestedSamples = Math.ceil(durationSeconds * this.streamInfo.sampleRateHz);
+
+    const buffered = this.ringBuffer.readLatest(requestedSamples, selection.indices);
+
+    return {
+      sampleRateHz: this.streamInfo.sampleRateHz,
+
+      sampleCount: buffered.sampleCount,
+
+      channels: selection.channels,
+
+      timestampsMs: buffered.timestampsMs,
+
+      sequenceNumbers: buffered.sequenceNumbers,
+
+      sourceSampleNumbers: buffered.sourceSampleNumbers,
+
+      values: buffered.values,
+    };
+  }
+
+  getConsumerCount(): number {
+    return this.consumers.size;
+  }
+
+  isStreaming(): boolean {
+    return this.activeAdapter?.isStreaming() ?? false;
+  }
+
+  /**
+   * Mainly intended for tests and application shutdown.
+   */
+  async dispose(): Promise<void> {
+    this.consumers.clear();
+
+    await this.deactivateAdapter();
+  }
+
+  private async ensureStreaming(adapter: EEGDeviceAdapter): Promise<void> {
+    if (
+      this.activeAdapter?.info.id === adapter.info.id &&
+      adapter.isStreaming() &&
+      this.streamInfo &&
+      this.ringBuffer
+    ) {
+      return;
+    }
+
+    if (this.initialization) {
+      await this.initialization;
+
+      if (this.activeAdapter?.info.id === adapter.info.id && adapter.isStreaming()) {
+        return;
+      }
+    }
+
+    this.initialization = this.activateAdapter(adapter);
+
+    try {
+      await this.initialization;
+    } finally {
+      this.initialization = null;
+    }
+  }
+
+  private async activateAdapter(adapter: EEGDeviceAdapter): Promise<void> {
+    if (this.activeAdapter && this.activeAdapter.info.id !== adapter.info.id) {
+      await this.deactivateAdapter();
+    }
+
+    const streamInfo = await adapter.getStreamInfo();
+
+    this.validateStreamInfo(streamInfo);
+
+    const capacitySamples = Math.max(
+      1,
+      Math.ceil(streamInfo.sampleRateHz * this.bufferDurationSeconds),
+    );
+
+    this.activeAdapter = adapter;
+
+    this.streamInfo = streamInfo;
+
+    this.ringBuffer = new EEGRingBuffer(streamInfo.channels.length, capacitySamples);
+
+    this.sampleUnsubscribe = adapter.subscribeSamples((batch) => {
+      this.handleBatch(batch);
+    });
+
+    try {
+      await adapter.startStream();
+
+      logger.info(
+        "EEGStreamService",
+        `EEG stream started: ${adapter.info.id} (${streamInfo.sampleRateHz} Hz, ${streamInfo.channels.length} channels)`,
+      );
+    } catch (error) {
+      this.sampleUnsubscribe?.();
+
+      this.sampleUnsubscribe = null;
+
+      this.activeAdapter = null;
+
+      this.streamInfo = null;
+
+      this.ringBuffer = null;
+
+      throw error;
+    }
+  }
+
+  private async deactivateAdapter(): Promise<void> {
+    const adapter = this.activeAdapter;
+
+    this.sampleUnsubscribe?.();
+
+    this.sampleUnsubscribe = null;
+
+    this.activeAdapter = null;
+
+    this.streamInfo = null;
+
+    this.ringBuffer = null;
+
+    if (adapter && adapter.isStreaming()) {
+      try {
+        await adapter.stopStream();
+
+        logger.info("EEGStreamService", `EEG stream stopped: ${adapter.info.id}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        logger.error(
+          "EEGStreamService",
+          `Failed to stop EEG stream "${adapter.info.id}": ${message}`,
+        );
+
+        throw error;
+      }
+    }
+  }
+
+  private async releaseConsumer(consumerId: number): Promise<void> {
+    const removed = this.consumers.delete(consumerId);
+
+    if (!removed) {
+      return;
+    }
+
+    if (this.consumers.size === 0) {
+      await this.deactivateAdapter();
+    }
+  }
+
+  private handleBatch(batch: Readonly<EEGSampleBatch>): void {
+    if (!this.streamInfo || !this.ringBuffer) {
+      return;
+    }
+
+    try {
+      if (batch.sampleRateHz !== this.streamInfo.sampleRateHz) {
+        throw new Error(
+          `EEG sample rate changed from ${this.streamInfo.sampleRateHz} Hz to ${batch.sampleRateHz} Hz.`,
+        );
+      }
+
+      if (batch.channelCount !== this.streamInfo.channels.length) {
+        throw new Error(
+          `EEG batch channel count changed from ${this.streamInfo.channels.length} to ${batch.channelCount}.`,
+        );
+      }
+
+      this.ringBuffer.push(batch);
+
+      for (const consumer of this.consumers.values()) {
+        if (!consumer.listener) {
+          continue;
+        }
+
+        const consumerBatch: EEGConsumerBatch = {
+          sequenceStart: batch.sequenceStart,
+
+          timestampStartMs: batch.timestampStartMs,
+
+          sampleRateHz: batch.sampleRateHz,
+
+          sampleCount: batch.sampleCount,
+
+          channels: consumer.channels,
+
+          values: consumer.channelIndices.map((channelIndex) => [...batch.values[channelIndex]]),
+
+          sourceSampleNumberStart: batch.sourceSampleNumberStart,
+        };
+
+        consumer.listener(consumerBatch);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      logger.error("EEGStreamService", `Rejected EEG batch: ${message}`);
+    }
+  }
+
+  private resolveSelection(
+    streamInfo: Readonly<EEGStreamInfo>,
+
+    requested: "all" | readonly string[],
+  ): {
+    channels: readonly Readonly<EEGChannelInfo>[];
+    indices: readonly number[];
+  } {
+    if (requested === "all") {
+      return {
+        channels: streamInfo.channels.map((channel) => ({
+          ...channel,
+        })),
+
+        indices: streamInfo.channels.map((_, index) => index),
+      };
+    }
+
+    const resolution = resolveEEGChannels(streamInfo, requested);
+
+    if (!resolution.complete) {
+      throw new Error(`Missing required EEG channels: ${resolution.missingLabels.join(", ")}.`);
+    }
+
+    return {
+      channels: resolution.resolved.map((entry) => ({
+        ...entry.channel,
+      })),
+
+      indices: resolution.resolved.map((entry) => entry.streamIndex),
+    };
+  }
+
+  private validateStreamInfo(streamInfo: Readonly<EEGStreamInfo>): void {
+    if (streamInfo.sampleRateHz <= 0) {
+      throw new Error("EEG stream sample rate must be greater than zero.");
+    }
+
+    if (streamInfo.channels.length === 0) {
+      throw new Error("EEG stream must expose at least one channel.");
+    }
+
+    const labels = new Set<string>();
+
+    streamInfo.channels.forEach((channel, index) => {
+      /**
+       * Normalized channel index must correspond directly to the
+       * values[][] array position.
+       */
+      if (channel.index !== index) {
+        throw new Error(
+          `EEG channel "${channel.label}" has index ${channel.index}, expected ${index}.`,
+        );
+      }
+
+      const normalizedLabel = channel.label.trim().toUpperCase();
+
+      if (labels.has(normalizedLabel)) {
+        throw new Error(`Duplicate EEG channel label "${channel.label}".`);
+      }
+
+      labels.add(normalizedLabel);
+    });
+  }
+}
+
+/**
+ * Shared application-wide EEG stream service.
+ */
+export const eegStreamService = new EEGStreamService();

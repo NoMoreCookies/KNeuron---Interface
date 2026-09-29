@@ -1,114 +1,100 @@
-import { ArrowLeft } from "lucide-react";
+import { createElement } from "react";
 
+import { moduleComponentRegistry } from "./moduleComponentRegistry";
 import { useRegisteredModules } from "./useRegisteredModules";
 
 interface ModuleHostProps {
   moduleId: string;
-
   onBack: () => void;
 }
 
 /**
- * Host container for an active KNeuron module.
+ * Mount point for active KNeuron modules.
  *
- * Real module UI will later be mounted inside this component.
+ * ModuleHost resolves:
+ * - metadata/runtime state through ModuleRegistry,
+ * - React implementation through ModuleComponentRegistry.
  *
- * For now it deliberately renders a development placeholder so the
- * complete module lifecycle and routing can be verified first.
+ * It must never contain module-specific branches.
  */
-export function ModuleHost({
-  moduleId,
-  onBack,
-}: ModuleHostProps) {
+export function ModuleHost({ moduleId, onBack }: ModuleHostProps) {
   const modules = useRegisteredModules();
 
-  const registeredModule = modules.find(
-    (module) => module.manifest.id === moduleId,
-  );
+  const registeredModule = modules.find((module) => module.manifest.id === moduleId);
 
   if (!registeredModule) {
     return (
-      <section className="module-host module-host--missing">
-        <h1>
-          Module not found
-        </h1>
+      <section className="module-host">
+        <header className="module-host__toolbar">
+          <button type="button" className="secondary-button" onClick={onBack}>
+            Back to Dashboard
+          </button>
+        </header>
 
-        <p>
-          The requested module is not registered in KNeuron.
-        </p>
+        <div className="module-host__fallback">
+          <span className="eyebrow">KNEURON MODULE</span>
 
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={onBack}
-        >
-          <ArrowLeft size={16} />
-          Back to Dashboard
-        </button>
+          <h1>Module unavailable</h1>
+
+          <p>The requested module is not registered.</p>
+        </div>
       </section>
     );
   }
 
-  const {
-    manifest,
-    status,
-  } = registeredModule;
+  const moduleComponent = moduleComponentRegistry.get(moduleId);
 
-  return (
-    <section className="module-host">
-      <header className="module-host__header">
-        <div>
-          <button
-            type="button"
-            className="module-host__back"
-            onClick={onBack}
-          >
-            <ArrowLeft size={16} />
-
+  /**
+   * Development manifests created before the component registry
+   * may still exist without a React implementation.
+   */
+  if (!moduleComponent) {
+    return (
+      <section className="module-host">
+        <header className="module-host__toolbar">
+          <button type="button" className="secondary-button" onClick={onBack}>
             Back to Dashboard
           </button>
+        </header>
 
-          <span className="eyebrow">
-            KNEURON MODULE
-          </span>
+        <div className="module-host__fallback">
+          <span className="eyebrow">KNEURON MODULE</span>
 
-          <h1>
-            {manifest.name}
-          </h1>
+          <h1>{registeredModule.manifest.name}</h1>
 
-          <p>
-            {manifest.description}
-          </p>
+          <p>{registeredModule.manifest.description}</p>
+
+          <div className="architecture-note">
+            <strong>Module implementation not registered</strong>
+
+            <span>
+              This manifest is registered, but no React module component is currently associated
+              with it.
+            </span>
+          </div>
         </div>
+      </section>
+    );
+  }
 
-        <div className="module-host__status">
-          <span>
-            Runtime
-          </span>
+  return (
+    <section className="module-host module-host--active">
+      <header className="module-host__toolbar">
+        <button type="button" className="secondary-button" onClick={onBack}>
+          Back to Dashboard
+        </button>
 
-          <strong>
-            {status}
-          </strong>
+        <div className="module-host__identity">
+          <span>{registeredModule.manifest.name}</span>
+
+          <code>v{registeredModule.manifest.version}</code>
         </div>
       </header>
 
-      <div className="module-host__placeholder">
-        <span className="eyebrow">
-          MODULE HOST
-        </span>
-
-        <h2>
-          {manifest.name} is running
-        </h2>
-
-        <p>
-          The module runtime is active. Its actual interface will be mounted
-          here when this module is integrated with KNeuron.
-        </p>
-
-        <code>
-          {manifest.entryPoint}
-        </code>
+      <div className="module-host__content">
+        {createElement(moduleComponent, {
+          onRequestClose: onBack,
+        })}
       </div>
     </section>
   );

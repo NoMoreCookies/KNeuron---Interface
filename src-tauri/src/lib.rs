@@ -1,7 +1,8 @@
 /// Starts the native KNeuron desktop shell.
 ///
-/// Keep this layer intentionally small: EEG processing and module loading will
-/// be introduced behind explicit interfaces instead of leaking into window setup.
+/// Keep this layer intentionally small. Device access, EEG processing,
+/// sidecars and module infrastructure must be introduced behind explicit
+/// interfaces instead of leaking into native window setup.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

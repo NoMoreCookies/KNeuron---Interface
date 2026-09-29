@@ -1,31 +1,28 @@
 /**
- * Global configuration of the KNeuron desktop shell.
+ * Global configuration and immutable metadata of the KNeuron desktop shell.
  *
- * Shell-wide metadata belongs here instead of being duplicated
- * across React components.
+ * Runtime user preferences belong in SettingsStore.
  */
 export const APP_CONFIG = {
   name: "KNeuron",
 
-  version: "0.2.3",
+  version: "0.2.7",
 
-  /**
-   * Application license identifier.
-   *
-   * Keep this value synchronized with package metadata.
-   *
-   * Replace "UNLICENSED" once the final project license is chosen.
-   */
   license: "UNLICENSED",
 
   /**
-   * True when KNeuron is running through Vite development mode.
+   * True only while running through the Vite development environment.
    */
   isDevelopment: import.meta.env.DEV,
 
   /**
-   * Temporary development modules are available only
-   * while developing KNeuron.
+   * Temporary test/development modules must never be registered
+   * in production builds.
    */
   enableDevelopmentModules: import.meta.env.DEV,
+
+  /**
+   * Development-only diagnostics must never be exposed in production UI.
+   */
+  enableDeveloperTools: import.meta.env.DEV,
 } as const;

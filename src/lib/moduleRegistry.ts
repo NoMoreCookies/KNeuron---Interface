@@ -1,8 +1,4 @@
-import type {
-  KNeuronModuleManifest,
-  ModuleRuntimeStatus,
-  RegisteredModule,
-} from "../types/module";
+import type { KNeuronModuleManifest, ModuleRuntimeStatus, RegisteredModule } from "../types/module";
 
 import { validateModuleManifest } from "./moduleValidation";
 
@@ -42,15 +38,11 @@ export class ModuleRegistry {
     const validation = validateModuleManifest(manifest);
 
     if (!validation.valid) {
-      throw new Error(
-        `Invalid module "${manifest.id}": ${validation.errors.join(" ")}`,
-      );
+      throw new Error(`Invalid module "${manifest.id}": ${validation.errors.join(" ")}`);
     }
 
     if (this.modules.has(manifest.id)) {
-      throw new Error(
-        `Module with ID "${manifest.id}" is already registered.`,
-      );
+      throw new Error(`Module with ID "${manifest.id}" is already registered.`);
     }
 
     const registeredModule: RegisteredModule = {
@@ -58,10 +50,7 @@ export class ModuleRegistry {
       status: "available",
     };
 
-    this.modules.set(
-      manifest.id,
-      registeredModule,
-    );
+    this.modules.set(manifest.id, registeredModule);
 
     this.emitChange();
 
@@ -108,17 +97,11 @@ export class ModuleRegistry {
    *
    * Module manifests remain immutable after registration.
    */
-  setRuntimeState(
-    moduleId: string,
-    status: ModuleRuntimeStatus,
-    error?: string,
-  ): RegisteredModule {
+  setRuntimeState(moduleId: string, status: ModuleRuntimeStatus, error?: string): RegisteredModule {
     const currentModule = this.modules.get(moduleId);
 
     if (!currentModule) {
-      throw new Error(
-        `Cannot update runtime state. Module "${moduleId}" is not registered.`,
-      );
+      throw new Error(`Cannot update runtime state. Module "${moduleId}" is not registered.`);
     }
 
     const updatedModule: RegisteredModule = error
@@ -132,10 +115,7 @@ export class ModuleRegistry {
           status,
         };
 
-    this.modules.set(
-      moduleId,
-      updatedModule,
-    );
+    this.modules.set(moduleId, updatedModule);
 
     this.emitChange();
 

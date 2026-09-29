@@ -1,8 +1,4 @@
-import {
-  Component,
-  type ErrorInfo,
-  type ReactNode,
-} from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { moduleManager } from "./moduleManager";
 
@@ -33,35 +29,20 @@ export class ModuleErrorBoundary extends Component<
     hasError: false,
   };
 
-  static getDerivedStateFromError(
-    error: Error,
-  ): ModuleErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): ModuleErrorBoundaryState {
     return {
       hasError: true,
       message: error.message,
     };
   }
 
-  componentDidCatch(
-    error: Error,
-    info: ErrorInfo,
-  ): void {
-    console.error(
-      `[KNeuron] Module "${this.props.moduleId}" crashed.`,
-      error,
-      info,
-    );
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error(`[KNeuron] Module "${this.props.moduleId}" crashed.`, error, info);
 
     try {
-      moduleManager.fail(
-        this.props.moduleId,
-        error,
-      );
+      moduleManager.fail(this.props.moduleId, error);
     } catch (managerError) {
-      console.error(
-        "[KNeuron] Failed to update module runtime after crash.",
-        managerError,
-      );
+      console.error("[KNeuron] Failed to update module runtime after crash.", managerError);
     }
   }
 
@@ -69,30 +50,15 @@ export class ModuleErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <section className="module-error">
-          <span className="eyebrow">
-            MODULE ERROR
-          </span>
+          <span className="eyebrow">MODULE ERROR</span>
 
-          <h1>
-            Module failed
-          </h1>
+          <h1>Module failed</h1>
 
-          <p>
-            KNeuron isolated the module failure. The desktop shell is still
-            running normally.
-          </p>
+          <p>KNeuron isolated the module failure. The desktop shell is still running normally.</p>
 
-          {this.state.message && (
-            <code>
-              {this.state.message}
-            </code>
-          )}
+          {this.state.message && <code>{this.state.message}</code>}
 
-          <button
-            type="button"
-            className="primary-button"
-            onClick={this.props.onReturnToDashboard}
-          >
+          <button type="button" className="primary-button" onClick={this.props.onReturnToDashboard}>
             Return to Dashboard
           </button>
         </section>

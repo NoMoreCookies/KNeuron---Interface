@@ -11,43 +11,29 @@ interface DashboardProps {
  * Dashboard knows that modules exist, but deliberately has no knowledge
  * about specific modules such as Cortex, Miner or SSVEP.
  */
-export function Dashboard({
-  onOpenModule,
-}: DashboardProps) {
+export function Dashboard({ onOpenModule }: DashboardProps) {
   const modules = useRegisteredModules();
 
   return (
     <section className="dashboard">
       <header className="dashboard__header">
         <div>
-          <h1 className="dashboard__title">
-            Applications
-          </h1>
+          <h1 className="dashboard__title">Applications</h1>
 
-          <p className="dashboard__subtitle">
-            Choose a module to start.
-          </p>
+          <p className="dashboard__subtitle">Choose a module to start.</p>
         </div>
       </header>
 
       {modules.length === 0 ? (
         <div className="dashboard-empty">
-          <h2>
-            No modules installed
-          </h2>
+          <h2>No modules installed</h2>
 
-          <p>
-            Installed KNeuron modules will appear here.
-          </p>
+          <p>Installed KNeuron modules will appear here.</p>
         </div>
       ) : (
         <div className="module-grid">
           {modules.map((module) => (
-            <ModuleCard
-              key={module.manifest.id}
-              module={module}
-              onOpen={onOpenModule}
-            />
+            <ModuleCard key={module.manifest.id} module={module} onOpen={onOpenModule} />
           ))}
         </div>
       )}

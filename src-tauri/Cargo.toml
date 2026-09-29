@@ -1,6 +1,6 @@
 [package]
 name = "kneuron-shell"
-version = "0.1.0"
+version = "0.2.7"
 description = "KNeuron modular BCI desktop shell"
 authors = ["KNeuron"]
 edition = "2021"
