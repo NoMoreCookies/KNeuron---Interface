@@ -1,0 +1,18 @@
+[package]
+name = "kneuron-shell"
+version = "0.1.0"
+description = "KNeuron modular BCI desktop shell"
+authors = ["KNeuron"]
+edition = "2021"
+
+[lib]
+name = "kneuron_shell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
