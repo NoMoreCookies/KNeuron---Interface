@@ -1,31 +1,31 @@
-import { SimulationEEGAdapter } from "./adapters/simulation/SimulationEEGAdapter";
+import {
+  BrainAccessEEGAdapter,
+} from "./adapters/brainaccess/BrainAccessEEGAdapter";
 
-import type { DeviceAdapter } from "./contracts/DeviceAdapter";
+import {
+  BrainLinkAdapter,
+} from "./adapters/brainlink/BrainLinkAdapter";
 
-import { deviceRegistry } from "./deviceRegistry";
+import type {
+  DeviceAdapter,
+} from "./contracts/DeviceAdapter";
+
+import {
+  deviceRegistry,
+} from "./deviceRegistry";
 
 /**
- * Creates adapters bundled directly with KNeuron.
+ * Production hardware bundled with KNeuron.
  *
- * Adding another built-in device should normally require:
- *
- * 1. implementing DeviceAdapter / EEGDeviceAdapter,
- * 2. importing the adapter here,
- * 3. adding one instance to this array,
- * 4. adding adapter-specific tests.
- *
- * DeviceManager must not be modified for each hardware manufacturer.
+ * Simulation EEG was intentionally removed from the production Device page.
  */
 function createBuiltInDevices(): DeviceAdapter[] {
-  return [new SimulationEEGAdapter()];
+  return [
+    new BrainAccessEEGAdapter(),
+    new BrainLinkAdapter(),
+  ];
 }
 
-/**
- * Registers device adapters bundled with the current KNeuron build.
- *
- * Registration is intentionally idempotent to remain safe during
- * development and future initialization flows.
- */
 export function registerBuiltInDevices(): void {
   const adapters = createBuiltInDevices();
 

@@ -1,832 +1,1441 @@
 # KNeuron
 
-KNeuron is a modular desktop platform for EEG / BCI applications.
+KNeuron is a modular desktop platform for EEG/BCI experiments developed for a scientific student project.
 
-The project is built around a strict separation of responsibilities:
+The application combines multiple brain-computer interface workflows in one desktop interface and separates:
 
-- the **desktop shell** owns navigation, settings, notifications, logging and module lifecycle,
-- the **device layer** owns connection state and hardware adapters,
-- the **EEG core** owns normalized EEG streaming, buffering and channel selection,
-- **modules** consume stable KNeuron APIs and must not depend directly on hardware manufacturers.
+- hardware communication,
+- EEG/brain-metric acquisition,
+- signal processing and classification,
+- interactive modules,
+- visualization,
+- device-specific integrations.
 
-The main architectural goal is extensibility:
+The current application contains three production modules:
 
-> Adding a new module or a new device should not require modifying the rest of the application architecture.
-
----
-
-# Table of contents
-
-1. [Current project status](#1-current-project-status)
-2. [Technology stack](#2-technology-stack)
-3. [Architecture overview](#3-architecture-overview)
-4. [Repository structure](#4-repository-structure)
-5. [Requirements](#5-requirements)
-6. [Installation](#6-installation)
-7. [Running the application](#7-running-the-application)
-8. [Production build](#8-production-build)
-9. [Quality commands](#9-quality-commands)
-10. [Development workflow](#10-development-workflow)
-11. [Shell architecture](#11-shell-architecture)
-12. [Module architecture](#12-module-architecture)
-13. [Adding a new module](#13-adding-a-new-module)
-14. [Device architecture](#14-device-architecture)
-15. [Adding a new device](#15-adding-a-new-device)
-16. [EEG architecture](#16-eeg-architecture)
-17. [Using EEG inside a module](#17-using-eeg-inside-a-module)
-18. [Channel selection](#18-channel-selection)
-19. [Simulation EEG](#19-simulation-eeg)
-20. [Tests required by change type](#20-tests-required-by-change-type)
-21. [Logging and notifications](#21-logging-and-notifications)
-22. [Settings](#22-settings)
-23. [Development vs production](#23-development-vs-production)
-24. [Tauri security](#24-tauri-security)
-25. [Versioning](#25-versioning)
-26. [Release checklist](#26-release-checklist)
-27. [Architectural invariants](#27-architectural-invariants)
-28. [Common mistakes](#28-common-mistakes)
-29. [Planned modules](#29-planned-modules)
-30. [Quick command reference](#30-quick-command-reference)
+- **Cortex 3D** — live EEG visualization on an interactive 3D brain,
+- **TaaLON Miner** — SSVEP control using FBCCA,
+- **Neuorrun** — attention-based interaction using BrainLink Lite / ThinkGear metrics.
 
 ---
 
-# 1. Current project status
+## Current stack
 
-The common KNeuron platform infrastructure is already implemented.
-
-## Implemented shell features
-
-- Tauri desktop shell
-- custom title bar
-- Dashboard
-- Device page
-- Settings page
-- left Sidebar
-- right DevicePanel
-- module focus mode
-- notifications
-- central logger
-- development DebugPanel
-- persistent settings
-- module exit confirmation
-- production/development separation
-
-## Implemented module infrastructure
-
-- `KNeuronModuleManifest`
-- manifest validation
-- `ModuleRegistry`
-- `ModuleManager`
-- module lifecycle states
-- `ModuleErrorBoundary`
-- `ModuleDefinition`
-- `ModuleComponentRegistry`
-- complete module definition registration
-- built-in module registration entry point
-- dynamic React module mounting through `ModuleHost`
-- development-module fallback for manifests without a React implementation
-
-## Implemented device infrastructure
-
-- generic `DeviceAdapter`
-- specialized `EEGDeviceAdapter`
-- `DeviceRegistry`
-- `DeviceManager`
-- global device state
-- device connection lifecycle
-- Device page UI
-- DevicePanel runtime state
-- built-in device registration
-- generic EEG device type guard
-
-## Implemented EEG infrastructure
-
-- normalized `EEGSampleBatch`
-- normalized consumer batches
-- `EEGRingBuffer`
-- `EEGStreamService`
-- shared physical stream for multiple consumers
-- per-consumer channel selection
-- historical EEG windows
-- sample sequence numbers
-- optional native/source sample numbers
-- deterministic 32-channel Simulation EEG adapter
-- automated tests for the EEG core
-
-## Not implemented yet
-
-At the current stage there are no finished production modules such as:
-
-- Cortex 3D
-- SSVEP Control
-- Miner
-
-There is also no production BrainAccess adapter yet.
-
-The real BrainAccess/Python integration will be added behind the existing `EEGDeviceAdapter` boundary.
-
----
-
-# 2. Technology stack
-
-## Desktop
+### Desktop shell
 
 - Tauri 2
-- Rust
-- native desktop WebView
-
-## Frontend
-
 - React
 - TypeScript
 - Vite
-- CSS
-- `lucide-react`
 
-## Testing and code quality
+### Visualization
 
-- Vitest
-- React Testing Library
-- jsdom
-- ESLint
-- TypeScript ESLint
-- React Hooks ESLint rules
-- Prettier
-- TypeScript type checking
+- Three.js / WebGL
+- Unity WebGL for Neuorrun
 
-## Planned signal-processing / hardware backend
+### Signal processing
 
-A future Python sidecar is expected to handle tasks such as:
-
-- BrainAccess integration
+- Python sidecars
 - NumPy
 - SciPy
-- filtering
-- Welch PSD
-- bandpower
-- FBCCA
-- future BCI classifiers
-- device SDK integration
+- scikit-learn
 
-Python must remain behind a defined device/service boundary.
+### Supported devices
 
-React modules must not import hardware SDK code directly.
+- **BrainAccess MAXI 009**
+- **BrainLink Lite BL002 V2.0**
 
 ---
 
-# 3. Architecture overview
+# Architecture
+
+KNeuron is designed so that application modules do not communicate directly with hardware.
 
 ```text
-                         KNeuron Desktop Shell
-                                  |
-          +-----------------------+-----------------------+
-          |                       |                       |
-      Dashboard                 Device                 Settings
-          |
-          v
-     ModuleRegistry
-          |
-     ModuleManager
-          |
-   ModuleComponentRegistry
-          |
-       ModuleHost
-          |
-          v
-      KNeuron Module
-
-
-                          Device Layer
-                              |
-                       DeviceRegistry
-                              |
-                       DeviceManager
-                              |
-                        DeviceAdapter
-                              |
-                  +-----------+-----------+
-                  |                       |
-           EEGDeviceAdapter         future device types
-                  |
-          +-------+------------------------------+
-          |                                      |
-SimulationEEGAdapter                      future adapters
-                                          BrainAccess
-                                          OpenBCI
-                                          Muse
-                                          LSL
-                                          ...
-
-
-                           EEG Core
-                              |
-                      EEGStreamService
-                              |
-                        EEGRingBuffer
-                              |
-               +--------------+--------------+
-               |              |              |
-           all channels    selected ch.   selected ch.
-               |              |              |
-            Cortex          SSVEP           Miner
+                         KNeuron
+                            │
+                      DeviceManager
+                  ┌─────────┴─────────┐
+                  │                   │
+        BrainAccess MAXI 009   BrainLink Lite
+                  │                   │
+             raw EEG              ThinkGear
+                  │                   │
+          EEGStreamService      BrainMetricsService
+                  │                   │
+          ┌───────┴────────┐          │
+          │                │          │
+     Cortex 3D        TaaLON Miner    │
+                           │          │
+                         FBCCA      Neuorrun
 ```
 
-The most important dependency direction is:
+The key architectural rule is:
 
-```text
-Module
-  ↓
-KNeuron Core API
-  ↓
-Device / EEG abstraction
-  ↓
-Concrete adapter
-  ↓
-Hardware / SDK / Python
-```
-
-Never reverse this direction.
+> Modules consume normalized application-level data and do not depend on hardware-native channel indexes, Bluetooth implementation details, COM ports, or vendor SDK internals.
 
 ---
 
-# 4. Repository structure
+# Devices
 
-The important project structure is:
+## BrainAccess MAXI 009
+
+BrainAccess is used as the raw EEG device for Cortex 3D and TaaLON Miner.
+
+Current normalized 32-channel layout:
 
 ```text
-src/
-├── components/
-│   ├── TitleBar.tsx
-│   ├── Sidebar.tsx
-│   ├── DevicePanel.tsx
-│   └── ...
+0  AF3
+1  AFz
+2  AF4
+3  F7
+4  F3
+5  Fz
+6  F4
+7  F8
+8  FC5
+9  FC1
+10 FC2
+11 FC6
+12 T7
+13 C3
+14 Cz
+15 C4
+16 T8
+17 CP5
+18 CP1
+19 CP2
+20 CP6
+21 P7
+22 P3
+23 Pz
+24 P4
+25 P8
+26 PO3
+27 POz
+28 PO4
+29 O1
+30 Oz
+31 O2
+```
+
+The physical cap uses:
+
+```text
+Fp1 = REF
+Fp2 = BIAS
+```
+
+Therefore these two positions are not exposed as EEG measurement channels.
+
+BrainAccess communication is handled by a Python sidecar:
+
+```text
+BrainAccess MAXI 009
+        ↓
+BrainAccess Python SDK
+        ↓
+brainaccess-bridge
+        ↓
+BrainAccessEEGAdapter
+        ↓
+DeviceManager
+        ↓
+EEGStreamService
+```
+
+---
+
+## BrainLink Lite
+
+Neuorrun uses BrainLink Lite and native ThinkGear/eSense metrics.
+
+The relevant values are:
+
+```text
+attention
+meditation
+poorSignalLevel
+signalQualityPercent
+```
+
+The application does not use FBCCA for Neuorrun.
+
+```text
+BrainLink Lite
+      ↓
+Bluetooth serial / COM or RFCOMM
+      ↓
+brainlink-bridge
+      ↓
+BrainLinkAdapter
+      ↓
+BrainMetricsService
+      ↓
+Neuorrun
+```
+
+The UI presents signal quality as a percentage derived from `poorSignalLevel`.
+
+---
+
+# Modules
+
+## Cortex 3D
+
+Cortex 3D visualizes live EEG activity on an interactive 3D brain.
+
+Main features:
+
+- live BrainAccess EEG,
+- interactive cortex,
+- electrode visualization,
+- band filtering,
+- FAST activity,
+- delta / theta / alpha / beta / gamma band power,
+- calibration,
+- filter warm-up,
+- frozen baseline,
+- robust median/MAD normalization,
+- artifact telemetry,
+- editable electrode positions,
+- LOW / MEDIUM / HIGH mesh quality,
+- persistent electrode layout.
+
+### Processing concept
+
+```text
+raw EEG
+   ↓
+filtering
+   ↓
+feature extraction
+   ↓
+baseline normalization
+   ↓
+relative activity
+   ↓
+3D cortex visualization
+```
+
+The baseline is intentionally frozen after calibration so the visualization continues to represent deviation from the initial session state rather than adapting the reference continuously.
+
+---
+
+## TaaLON Miner
+
+TaaLON Miner is an SSVEP-controlled game.
+
+The module requests only posterior channels:
+
+```text
+POz
+PO3
+PO4
+Oz
+O1
+O2
+```
+
+The BrainAccess device itself still streams the full 32-channel EEG.
+
+### Default SSVEP frequencies
+
+```text
+UP     10.25 Hz
+LEFT   13.75 Hz
+RIGHT  14.25 Hz
+DOWN   14.75 Hz
+```
+
+### FBCCA pipeline
+
+```text
+EEG trial
+   ↓
+DC removal
+   ↓
+5 filter-bank subbands
+   ↓
+CCA against target references
+   ↓
+5 harmonics
+   ↓
+weighted squared canonical correlations
+   ↓
+argmax
+   ↓
+UP / LEFT / RIGHT / DOWN
+```
+
+The classifier is implemented in Python and uses NumPy, SciPy and scikit-learn CCA.
+
+---
+
+## Neuorrun
+
+Neuorrun is the original Unity game integrated into KNeuron as a WebGL module.
+
+The game is controlled by BrainLink `attention`.
+
+```text
+BrainLink
+   ↓
+attention
+   ↓
+threshold
+   ↓
+interaction
+```
+
+The Unity project is built locally to WebGL and copied into:
+
+```text
+public/neuorrun/
+```
+
+KNeuron injects BrainLink metrics into Unity through:
+
+```text
+KNeuron React module
+      ↓
+Unity SendMessage
+      ↓
+KNeuronBridge.cs
+      ↓
+TGCConnectionController
+      ↓
+original game Controller
+```
+
+No FBCCA is used in Neuorrun.
+
+---
+
+# Repository structure
+
+```text
+KNeuronInterFace/
 │
-├── config/
-│   ├── appConfig.ts
-│   ├── defaultSettings.ts
-│   └── ...
+├── brainaccess-sidecar/
+├── brainlink-sidecar/
+├── ssvep-sidecar/
 │
-├── core/
-│   ├── devices/
-│   │   ├── models/
-│   │   │   ├── device.ts
-│   │   │   └── eeg.ts
-│   │   │
-│   │   ├── contracts/
-│   │   │   ├── DeviceAdapter.ts
-│   │   │   ├── EEGDeviceAdapter.ts
-│   │   │   └── deviceGuards.ts
-│   │   │
-│   │   ├── adapters/
-│   │   │   └── simulation/
-│   │   │       ├── SimulationEEGAdapter.ts
-│   │   │       └── SimulationEEGAdapter.test.ts
-│   │   │
-│   │   ├── eeg/
-│   │   │   ├── channelSelection.ts
-│   │   │   └── channelSelection.test.ts
-│   │   │
-│   │   ├── deviceRegistry.ts
-│   │   ├── deviceManager.ts
-│   │   └── registerBuiltInDevices.ts
-│   │
-│   └── eeg/
-│       ├── models.ts
-│       ├── EEGRingBuffer.ts
-│       ├── EEGRingBuffer.test.ts
-│       ├── EEGStreamService.ts
-│       ├── EEGStreamService.test.ts
-│       └── index.ts
+├── unity-patch/
+│   └── prepare_webgl_build.py
 │
-├── features/
-│   ├── dashboard/
-│   │
-│   ├── debug/
-│   │
-│   ├── device/
-│   │   ├── DevicePage.tsx
-│   │   ├── DeviceCard.tsx
-│   │   └── useDevice.ts
-│   │
+├── public/
 │   ├── modules/
-│   │   ├── ModuleHost.tsx
-│   │   ├── ModuleErrorBoundary.tsx
-│   │   ├── moduleManager.ts
-│   │   ├── moduleLauncher.ts
-│   │   ├── moduleDefinition.ts
-│   │   ├── moduleComponentRegistry.ts
-│   │   ├── registerModuleDefinition.ts
-│   │   ├── registerBuiltInModules.ts
-│   │   ├── registerDevelopmentModules.ts
-│   │   ├── useRegisteredModules.ts
-│   │   ├── moduleComponentRegistry.test.ts
-│   │   └── registerModuleDefinition.test.tsx
-│   │
-│   ├── notifications/
-│   │
-│   └── settings/
-│
-├── lib/
-│   ├── logger.ts
-│   ├── moduleRegistry.ts
-│   ├── moduleRegistry.test.ts
-│   ├── moduleValidation.ts
-│   ├── moduleValidation.test.ts
-│   ├── notificationStore.ts
-│   ├── settingsStore.ts
-│   └── settingsStore.test.ts
-│
-├── test/
-│   ├── setup.ts
-│   └── moduleFixtures.ts
-│
-├── types/
-│   ├── logging.ts
-│   ├── module.ts
-│   ├── navigation.ts
-│   ├── notification.ts
-│   └── settings.ts
-│
-├── App.tsx
-└── main.tsx
-
-
-src-tauri/
-├── capabilities/
-│   └── default.json
+│   │   └── cortex/
+│   └── neuorrun/
+│       └── Build/
 │
 ├── src/
-│   └── lib.rs
+│   ├── core/
+│   │   ├── devices/
+│   │   ├── eeg/
+│   │   ├── brainMetrics/
+│   │   └── ssvep/
+│   ├── features/
+│   ├── modules/
+│   │   ├── cortex/
+│   │   ├── miner/
+│   │   └── neuorrun/
+│   └── styles/
 │
-├── Cargo.toml
-└── tauri.conf.json
-```
-
-Future production modules should live under:
-
-```text
-src/modules/
-```
-
-Example:
-
-```text
-src/modules/cortex/
-src/modules/ssvep/
-src/modules/miner/
+├── src-tauri/
+│   ├── binaries/
+│   ├── capabilities/
+│   ├── src/
+│   └── tauri.conf.json
+│
+├── setup-and-run.ps1
+├── setup-and-run.sh
+├── package.json
+├── package-lock.json
+├── vite.config.ts
+├── .gitignore
+└── README.md
 ```
 
 ---
 
-# 5. Requirements
+# Quick start on a new machine
+
+KNeuron includes bootstrap scripts for both Windows and Linux.
+
+The goal is that after cloning the repository, the development environment and Python sidecars can be recreated locally instead of storing generated dependencies and build artifacts in Git.
 
 ## Windows
 
-Recommended development environment:
-
-- Windows 10 or Windows 11
-- Node.js
-- npm
-- Rust
-- Cargo
-- Microsoft Visual Studio Build Tools
-- C++ desktop development toolchain
-- WebView2 Runtime
-- Git
-- VS Code
-
-Verify the environment:
+### 1. Clone the repository
 
 ```powershell
-node --version
-npm --version
-rustc --version
-cargo --version
-git --version
+git clone <REPOSITORY_URL>
+cd KNeuronInterFace
 ```
 
-## Linux
-
-KNeuron can also be built on Linux.
-
-Linux-specific Tauri dependencies must be installed according to the Tauri platform requirements.
-
-Important:
-
-```json
-"targets": "all"
-```
-
-means:
-
-> build every supported bundle type for the current operating system.
-
-It does not mean:
-
-> cross-compile Windows, Linux and macOS from one machine.
-
----
-
-# 6. Installation
-
-Clone or copy the repository.
-
-Open a terminal in the project root:
+### 2. Run the bootstrap
 
 ```powershell
-npm install
+powershell -ExecutionPolicy Bypass -File .\setup-and-run.ps1
 ```
 
-Then check dependencies:
+The script checks or installs the required development environment and then builds the local sidecars.
 
-```powershell
-npm audit
-```
-
-The preferred result is:
+It handles:
 
 ```text
-found 0 vulnerabilities
+Node.js / npm
+Python
+Rust / Cargo
+Visual Studio C++ Build Tools
+npm dependencies
+BrainAccess sidecar
+SSVEP classifier sidecar
+BrainLink sidecar
 ```
 
-Do not run the application as Administrator unless a specific feature explicitly requires elevated privileges.
-
----
-
-# 7. Running the application
-
-## Full desktop development
-
-Use:
+After setup it verifies that Tauri sidecar binaries exist and starts:
 
 ```powershell
 npm run tauri:dev
 ```
 
-This starts:
+### Prepare without launching
 
-- Vite
-- the Tauri development process
-- the KNeuron desktop window
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-and-run.ps1 -NoLaunch
+```
 
-This is the recommended development command.
+Then start manually:
 
-## Frontend-only development
+```powershell
+npm run tauri:dev
+```
+
+### Windows requirements
+
+The bootstrap expects:
+
+- Windows 10/11,
+- internet access during first setup,
+- `winget` / Microsoft App Installer,
+- permission to install development tools.
+
+The first build can take significantly longer because Node packages, Rust dependencies and Python environments are created from scratch.
+
+---
+
+# Linux quick start
+
+The included Linux bootstrap currently targets **Ubuntu/Debian-family distributions**.
+
+### 1. Clone the repository
+
+```bash
+git clone <REPOSITORY_URL>
+cd KNeuronInterFace
+```
+
+### 2. Make the bootstrap executable
+
+```bash
+chmod +x setup-and-run.sh
+```
+
+### 3. Run it
+
+```bash
+./setup-and-run.sh
+```
+
+The script installs/checks:
+
+```text
+Tauri Linux system dependencies
+Node.js / npm
+Python 3
+Rust / Cargo
+Bluetooth utilities
+Python virtual environments
+all three Python sidecars
+```
+
+It also checks device permissions used by serial/Bluetooth devices.
+
+### Prepare without launching
+
+```bash
+./setup-and-run.sh --no-launch
+```
+
+### Skip OS package installation
+
+If system dependencies are already installed:
+
+```bash
+./setup-and-run.sh --skip-system
+```
+
+### Important Linux note
+
+If the script adds the current user to:
+
+```text
+dialout
+```
+
+log out and log back in before using serial/RFCOMM devices.
+
+The BrainAccess Python SDK is the component most likely to require platform-specific verification. The bootstrap can rebuild the sidecar only if the BrainAccess SDK/dependency used by `brainaccess-sidecar/requirements.txt` is available for the target Linux environment.
+
+---
+
+# What the bootstrap creates locally
+
+The repository intentionally does not need to store every generated dependency.
+
+After bootstrap, the local machine may contain:
+
+```text
+node_modules/
+src-tauri/target/
+
+brainaccess-sidecar/.venv/
+brainaccess-sidecar/build/
+brainaccess-sidecar/dist/
+
+ssvep-sidecar/.venv/
+ssvep-sidecar/build/
+ssvep-sidecar/dist/
+
+brainlink-sidecar/.venv/
+brainlink-sidecar/build/
+brainlink-sidecar/dist/
+
+src-tauri/binaries/*
+```
+
+These directories/files can be regenerated and should generally not be treated as source code.
+
+---
+
+# Recommended `.gitignore`
 
 Use:
 
+```gitignore
+# =========================================================
+# KNeuron — .gitignore
+# =========================================================
+
+
+# ---------------------------------------------------------
+# Node / React
+# ---------------------------------------------------------
+
+node_modules/
+dist/
+
+
+# ---------------------------------------------------------
+# Rust / Tauri
+# ---------------------------------------------------------
+
+src-tauri/target/
+
+
+# ---------------------------------------------------------
+# Python
+# ---------------------------------------------------------
+
+**/.venv/
+**/venv/
+**/__pycache__/
+
+*.pyc
+*.pyo
+*.pyd
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+
+# ---------------------------------------------------------
+# PyInstaller build artifacts
+# ---------------------------------------------------------
+
+brainaccess-sidecar/build/
+brainaccess-sidecar/dist/
+
+brainlink-sidecar/build/
+brainlink-sidecar/dist/
+
+ssvep-sidecar/build/
+ssvep-sidecar/dist/
+
+
+# ---------------------------------------------------------
+# Generated Tauri sidecar binaries
+# ---------------------------------------------------------
+
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+
+# ---------------------------------------------------------
+# IDE / editor files
+# ---------------------------------------------------------
+
+.vscode/
+.idea/
+
+
+# ---------------------------------------------------------
+# Operating system files
+# ---------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# ---------------------------------------------------------
+# Logs / temporary files
+# ---------------------------------------------------------
+
+*.log
+*.tmp
+*.temp
+
+
+# ---------------------------------------------------------
+# Miscellaneous caches
+# ---------------------------------------------------------
+
+.cache/
+```
+
+## Why these files are ignored
+
+### `node_modules/`
+
+Contains installed npm packages.
+
+It can always be recreated from:
+
+```text
+package.json
+package-lock.json
+```
+
+with:
+
+```bash
+npm ci
+```
+
+It should not be committed because it is large, platform-dependent and generated.
+
+### `src-tauri/target/`
+
+Contains Rust/Tauri compilation output:
+
+```text
+debug builds
+release builds
+incremental compilation cache
+compiled dependencies
+temporary linker artifacts
+```
+
+This directory can grow to several gigabytes.
+
+It is regenerated by Cargo/Tauri and is not source code.
+
+### `**/.venv/`
+
+Python virtual environments contain copies of the Python interpreter and installed packages.
+
+They are platform-specific and can be rebuilt from each sidecar's:
+
+```text
+requirements.txt
+```
+
+### `*/build/` and `*/dist/`
+
+These are PyInstaller output directories.
+
+They can contain:
+
+```text
+.pkg
+.pyz
+.toc
+temporary compiled Python files
+generated executables
+```
+
+They are build artifacts, not application source.
+
+### `src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep`
+
+The platform-specific sidecar executables can be rebuilt locally by the bootstrap/build scripts:
+
+```text
+brainaccess-bridge
+ssvep-classifier
+brainlink-bridge
+```
+
+Keeping generated sidecar binaries out of the repository substantially reduces repository size and avoids mixing Windows and Linux artifacts in Git.
+
+`src-tauri/binaries/.gitkeep` may be committed only to preserve the otherwise-empty directory.
+
+### IDE and OS files
+
+Files such as:
+
+```text
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+```
+
+describe a local editor or operating system and are not required to build KNeuron.
+
+### Logs and caches
+
+Logs, temporary files and caches contain no source-of-truth project state and should not be versioned.
+
+---
+
+# Files that should stay in Git
+
+Do **not** ignore the following:
+
+```text
+package.json
+package-lock.json
+
+src/
+src-tauri/src/
+src-tauri/Cargo.toml
+src-tauri/Cargo.lock
+src-tauri/tauri.conf.json
+src-tauri/capabilities/
+
+brainaccess-sidecar/*.py
+brainaccess-sidecar/*.spec
+brainaccess-sidecar/requirements.txt
+brainaccess-sidecar/build.ps1
+
+ssvep-sidecar/*.py
+ssvep-sidecar/*.spec
+ssvep-sidecar/requirements.txt
+ssvep-sidecar/build.ps1
+
+brainlink-sidecar/*.py
+brainlink-sidecar/*.spec
+brainlink-sidecar/requirements.txt
+brainlink-sidecar/build.ps1
+
+public/modules/cortex/*.glb
+
+public/neuorrun/Build/
+public/neuorrun/manifest.json
+
+unity-patch/
+
+setup-and-run.ps1
+setup-and-run.sh
+
+README.md
+.gitignore
+```
+
+### Why keep `package-lock.json` and `Cargo.lock`
+
+Lock files make dependency resolution reproducible across machines.
+
+### Why keep `*.spec`
+
+PyInstaller spec files describe how sidecar executables are packaged.
+
+They are part of the reproducible build definition.
+
+### Why keep Cortex `.glb` files
+
+The LOW / MEDIUM / HIGH brain meshes are runtime application assets, not generated caches.
+
+### Why keep `public/neuorrun/Build/`
+
+The current KNeuron repository contains the built Unity WebGL runtime so a developer cloning KNeuron does **not** also need the complete Unity project and Unity Editor just to run Neuorrun.
+
+The relevant runtime files include:
+
+```text
+*.data
+*.wasm
+*.framework.js
+*.loader.js
+```
+
+If Neuorrun source is later maintained in a separate repository and built automatically in CI, this policy can be changed.
+
+---
+
+# Verify what Git will include
+
+To list all tracked or untracked files that are **not ignored**:
+
 ```powershell
+git ls-files -co --exclude-standard
+```
+
+## Calculate their total size on Windows
+
+```powershell
+$files = git ls-files -co --exclude-standard
+
+$total = 0
+
+foreach ($file in $files) {
+    if (Test-Path $file -PathType Leaf) {
+        $total += (Get-Item $file).Length
+    }
+}
+
+[PSCustomObject]@{
+    MB = [math]::Round($total / 1MB, 2)
+    GB = [math]::Round($total / 1GB, 3)
+}
+```
+
+## Show the largest non-ignored files on Windows
+
+```powershell
+$files = git ls-files -co --exclude-standard
+
+$files |
+Where-Object { Test-Path $_ -PathType Leaf } |
+ForEach-Object {
+    $item = Get-Item $_
+
+    [PSCustomObject]@{
+        File = $_
+        MB = [math]::Round($item.Length / 1MB, 2)
+    }
+} |
+Sort-Object MB -Descending |
+Select-Object -First 30 |
+Format-Table -AutoSize
+```
+
+## Check Git history/object storage
+
+```bash
+git count-objects -vH
+```
+
+This is useful because deleting a large file from the current working tree does not automatically remove it from old Git history.
+
+---
+
+# Manual development setup
+
+The bootstrap scripts are the preferred setup method.
+
+If dependencies are already installed, frontend packages can be installed manually:
+
+```bash
+npm ci
+```
+
+Run the application:
+
+```bash
+npm run tauri:dev
+```
+
+---
+
+# Quality checks
+
+Before committing or preparing a release:
+
+```bash
+npm run format
+npm run typecheck
+npm test
+npm run lint
+```
+
+If defined:
+
+```bash
+npm run quality
+```
+
+---
+
+# Sidecars
+
+KNeuron uses three production sidecars:
+
+```text
+brainaccess-bridge
+ssvep-classifier
+brainlink-bridge
+```
+
+Tauri's `externalBin` configuration references names without a platform target suffix:
+
+```json
+"externalBin": [
+  "binaries/brainaccess-bridge",
+  "binaries/ssvep-classifier",
+  "binaries/brainlink-bridge"
+]
+```
+
+On Windows, generated files use names similar to:
+
+```text
+brainaccess-bridge-x86_64-pc-windows-msvc.exe
+ssvep-classifier-x86_64-pc-windows-msvc.exe
+brainlink-bridge-x86_64-pc-windows-msvc.exe
+```
+
+On a typical x86_64 Linux machine:
+
+```text
+brainaccess-bridge-x86_64-unknown-linux-gnu
+ssvep-classifier-x86_64-unknown-linux-gnu
+brainlink-bridge-x86_64-unknown-linux-gnu
+```
+
+The bootstrap scripts create/copy these locally into:
+
+```text
+src-tauri/binaries/
+```
+
+---
+
+# BrainLink diagnostics
+
+On Windows:
+
+```powershell
+cd .\brainlink-sidecar
+.\.venv\Scripts\python.exe .\diagnose.py
+```
+
+A valid connection should produce changing values such as:
+
+```text
+attention
+meditation
+poorSignalLevel
+signalQualityPercent
+```
+
+If BrainLink is connected to a phone/tablet, disconnect it there before attempting to connect from KNeuron.
+
+---
+
+# Building Neuorrun manually
+
+The repository normally keeps the generated WebGL runtime in:
+
+```text
+public/neuorrun/Build/
+```
+
+so Unity is not required on every development machine.
+
+If rebuilding Neuorrun is required, use the original Unity project.
+
+## Unity version
+
+```text
+Unity 2022.3.7f1
+```
+
+with WebGL Build Support.
+
+## Recommended WebGL settings
+
+```text
+Compression Format: Disabled
+Data Caching: Disabled
+Threads: Disabled
+```
+
+## Expected build output
+
+```text
+Build/*.loader.js
+Build/*.framework.js
+Build/*.data
+Build/*.wasm
+```
+
+## Copy the new build into KNeuron
+
+Windows example:
+
+```powershell
+python .\unity-patch\prepare_webgl_build.py `
+  "C:\Users\<user>\Desktop\NeuorrunWebGL" `
+  ".\public\neuorrun"
+```
+
+After copying, verify:
+
+```text
+public/neuorrun/manifest.json
+```
+
+contains:
+
+```json
+{
+  "ready": true
+}
+```
+
+---
+
+# Tauri WebGL CSP
+
+Neuorrun is loaded into a canvas rather than an iframe.
+
+Relevant directives:
+
+```text
+script-src 'self' 'wasm-unsafe-eval'
+worker-src 'self' blob:
+frame-src 'none'
+```
+
+---
+
+# Recommended end-to-end test
+
+After setup on a new machine:
+
+```text
+1. Start KNeuron.
+2. Connect BrainAccess.
+3. Open Cortex 3D.
+4. Verify live EEG.
+5. Exit Cortex.
+6. Open TaaLON Miner.
+7. Run an SSVEP trial.
+8. Exit Miner.
+9. Disconnect BrainAccess.
+10. Connect BrainLink Lite.
+11. Open Neuorrun.
+12. Verify ATTENTION / MEDITATION / SIGNAL QUALITY.
+13. Verify attention-driven interaction.
+14. Exit Neuorrun.
+15. Enter Neuorrun again.
+16. Close KNeuron.
+```
+
+The application should not require a restart while switching between modules.
+
+---
+
+# Production configuration
+
+The production Dashboard should contain:
+
+```text
+Cortex 3D
+TaaLON Miner
+Neuorrun
+```
+
+The production Device screen should contain:
+
+```text
+BrainAccess MAXI 009
+BrainLink Lite
+```
+
+Development/test modules and Simulation EEG should not be registered in the production application.
+
+---
+
+# Release build
+
+## Windows / general Tauri build
+
+```bash
+npm run tauri:build
+```
+
+or:
+
+```bash
+npx tauri build
+```
+
+Windows NSIS output is typically created under:
+
+```text
+src-tauri/target/release/bundle/nsis/
+```
+
+Linux package output is created by Tauri under the corresponding bundle directories for the configured Linux targets.
+
+---
+
+# Troubleshooting
+
+## `localhost:1420` returns HTTP 404
+
+Verify:
+
+```text
+package.json
+index.html
+```
+
+exist in the repository root.
+
+Test Vite separately:
+
+```bash
 npm run dev
 ```
 
-Use this only when debugging frontend behavior that does not depend on Tauri.
-
 ---
 
-# 8. Production build
+## Tauri sidecar is missing
 
-Before production build:
+Rerun the bootstrap:
 
-```powershell
-npm run quality:full
-npm audit
-```
-
-Then:
+### Windows
 
 ```powershell
-npm run tauri:build
+powershell -ExecutionPolicy Bypass -File .\setup-and-run.ps1 -NoLaunch
 ```
 
-Typical release output:
+### Linux
+
+```bash
+./setup-and-run.sh --no-launch
+```
+
+Then inspect:
 
 ```text
-src-tauri/target/release/
-src-tauri/target/release/bundle/
-```
-
-Always test the real production executable / installer.
-
-Passing `tauri:dev` is not sufficient release validation.
-
----
-
-# 9. Quality commands
-
-## Type checking
-
-```powershell
-npm run typecheck
-```
-
-## Unit/integration tests
-
-```powershell
-npm test
-```
-
-## Watch tests
-
-```powershell
-npm run test:watch
-```
-
-## Coverage
-
-```powershell
-npm run test:coverage
-```
-
-## Lint
-
-```powershell
-npm run lint
-```
-
-## Auto-fix lint where possible
-
-```powershell
-npm run lint:fix
-```
-
-## Format
-
-```powershell
-npm run format
-```
-
-## Format check
-
-```powershell
-npm run format:check
-```
-
-## Frontend quality gate
-
-```powershell
-npm run quality
-```
-
-Expected pipeline:
-
-```text
-typecheck
-→ lint
-→ format:check
-→ tests
-→ frontend build
-```
-
-## Full quality gate
-
-```powershell
-npm run quality:full
-```
-
-This additionally checks Rust/Tauri:
-
-```powershell
-cargo check --manifest-path src-tauri/Cargo.toml
+src-tauri/binaries/
 ```
 
 ---
 
-# 10. Development workflow
+## BrainLink connects but no metrics are received on Windows
 
-For every meaningful change:
-
-```text
-1. make one coherent change
-2. run formatting
-3. run type checking
-4. run relevant tests
-5. run lint
-6. run the complete quality gate
-7. manually test the affected workflow
-8. update this README when an extension contract changed
-```
-
-Recommended command sequence:
+Check COM ports:
 
 ```powershell
-npm run format
-npm run typecheck
-npm test
-npm run lint
-npm run quality
+[System.IO.Ports.SerialPort]::GetPortNames()
 ```
 
-Before release:
+and:
 
 ```powershell
-npm run quality:full
-npm audit
-npm run tauri:build
+Get-CimInstance Win32_SerialPort |
+Select-Object DeviceID, Name, Description
 ```
 
-Do not weaken a failing test before first checking whether the implementation is actually wrong.
+A port can be forced before starting KNeuron:
+
+```powershell
+$env:KNEURON_BRAINLINK_PORT="COM7"
+npm run tauri:dev
+```
+
+Replace `COM7` with the actual outgoing Bluetooth COM port.
 
 ---
 
-# 11. Shell architecture
+## BrainLink serial access fails on Linux
 
-`App.tsx` is the shell coordinator.
+Verify membership:
 
-It owns:
+```bash
+groups
+```
 
-- shell route state
-- Dashboard / Device / Settings navigation
-- module opening
-- module closing
-- optional close confirmation
-- shell layout
-- focus mode
-- NotificationCenter
-- development DebugPanel
+If `dialout` is missing:
 
-It must not own:
+```bash
+sudo usermod -aG dialout "$USER"
+```
 
-- device-specific SDK code
-- BrainAccess implementation
-- Bluetooth implementation
-- electrode maps
-- filtering
-- FBCCA
-- Three.js module rendering
-- module-specific business logic
+then log out and log back in.
 
-When a module is open, the shell enters focus mode.
+Also verify Bluetooth:
 
-The Sidebar and DevicePanel collapse, but the global application remains mounted.
-
-This ensures that shared state can survive module navigation.
+```bash
+rfkill list bluetooth
+systemctl status bluetooth
+```
 
 ---
 
-# 12. Module architecture
+## Neuorrun reports `UNITY BUILD REQUIRED`
 
-The module system consists of several independent responsibilities.
-
-## Manifest
-
-`KNeuronModuleManifest` contains module metadata.
-
-Example shape:
-
-```ts
-export interface KNeuronModuleManifest {
-  schemaVersion: 1;
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  category: ModuleCategory;
-  appearance: ModuleAppearance;
-  entryPoint: string;
-  capabilities: ModuleCapabilities;
-}
-```
-
-## Manifest validation
-
-`moduleValidation.ts` checks:
-
-- supported schema version
-- valid module ID
-- required metadata
-- allowed category
-- valid entry point
-
-Module IDs use slug notation:
+Verify:
 
 ```text
-cortex-3d
-ssvep-control
-miner-game
-signal-monitor
+public/neuorrun/Build/
+public/neuorrun/manifest.json
 ```
 
-Avoid:
-
-```text
-Cortex3D
-Cortex 3D
-cortex_3d
-```
-
-The entry point should match:
-
-```text
-/modules/<module-id>
-```
-
-Example:
-
-```ts
-id: "cortex-3d",
-entryPoint: "/modules/cortex-3d",
-```
-
-## ModuleRegistry
-
-Stores:
-
-- manifest
-- runtime state
-- optional runtime error
-
-It does not store React components.
-
-## ModuleManager
-
-Owns lifecycle transitions.
-
-Current runtime states:
-
-```text
-available
-starting
-running
-error
-disabled
-```
-
-## ModuleComponentRegistry
-
-Stores React module implementations.
-
-Conceptually:
-
-```text
-module ID
-    ↓
-React Component
-```
-
-`ModuleHost` resolves a module implementation dynamically.
-
-It does not contain module-specific conditions.
-
-Correct:
-
-```text
-moduleId
-  ↓
-ModuleComponentRegistry
-  ↓
-dynamic React component
-```
-
-Wrong:
-
-```tsx
-if (moduleId === "cortex-3d") {
-  return <CortexModule />;
-}
-```
-
-## ModuleDefinition
-
-A complete module definition combines:
-
-```text
-manifest + React component
-```
-
-through:
-
-```ts
-KNeuronModuleDefinition
-```
-
-## registerModuleDefinition
-
-Registers both:
-
-- manifest
-- component
-
-as one logical operation.
-
-If registration fails midway, the registration is rolled back to avoid a partially registered module.
-
-## ModuleHost
-
-`ModuleHost`:
-
-- finds registered module metadata
-- resolves the React component
-- renders it dynamically
-- provides `onRequestClose`
-- displays a fallback if a development manifest exists without a registered component
-
-Dynamic component mounting currently uses React `createElement(...)`.
+If missing, rebuild/copy the Unity WebGL output.
 
 ---
 
-# 13. Adding a new module
+## Neuorrun loads but attention does not affect gameplay
 
-Production modules should use this structure:
+First verify that `ATTENTION` changes in the KNeuron telemetry.
+
+Then verify the Unity integration contains:
+
+```text
+KNeuronBridge.cs
+patched TGCConnectionController.cs
+```
+
+The bridge GameObject must be named:
+
+```text
+KNeuronBridge
+```
+
+and the Unity receiver method must be:
+
+```text
+SetMetricsJson
+```
+
+---
+
+# Developer extension guide
+
+This section is the canonical guide for extending KNeuron with new modules, devices and sidecars.
+
+The central rule is:
+
+```text
+hardware / vendor SDK
+        ↓
+device adapter / bridge
+        ↓
+DeviceManager
+        ↓
+application service
+        ↓
+module
+        ↓
+UI
+```
+
+A module consumes normalized KNeuron APIs. It must not know how a specific manufacturer transports or indexes the data.
+
+---
+
+## Extension architecture rules
+
+Production modules must not:
+
+```text
+open COM/RFCOMM ports directly
+call BrainAccess or another vendor SDK directly
+spawn hardware sidecars directly
+use physical/vendor EEG channel indexes
+start a second independent hardware EEG stream
+own the global active-device state
+leave subscriptions/timers/render loops alive after unmount
+```
+
+Device adapters must not contain:
+
+```text
+game logic
+module-specific rendering
+Dashboard/UI state
+manufacturer-specific behavior exposed above the adapter boundary
+```
+
+Use this dependency direction:
+
+```text
+module → service → adapter → bridge / SDK → hardware
+```
+
+Never make a core service depend on a concrete module.
+
+---
+
+# Contracts and interfaces
+
+## Generic device contract
+
+The generic device contract is represented by `DeviceAdapter`.
+
+The core responsibilities are:
+
+```text
+info
+getStatus()
+connect()
+disconnect()
+subscribeStatus()
+```
+
+The exact TypeScript contract is the source of truth in the repository.
+
+To locate it:
+
+```bash
+git grep -n "interface DeviceAdapter" src/core/devices
+```
+
+`DeviceManager` owns the application-level connection lifecycle and the currently active device.
+
+Current architectural limitation:
+
+> KNeuron uses one active physical device at a time through `DeviceManager`.
+
+This does not prevent multiple modules from consuming one active EEG stream.
+
+## Raw EEG contract
+
+Raw EEG devices implement:
+
+```text
+EEGDeviceAdapter
+```
+
+The canonical file is:
+
+```text
+src/core/devices/contracts/EEGDeviceAdapter.ts
+```
+
+The EEG-specific operations used by the shared stream service are:
+
+```text
+getStreamInfo()
+startStream()
+stopStream()
+isStreaming()
+subscribeSamples()
+```
+
+The existing `EEGStreamService` also uses:
+
+```text
+adapter.info
+adapter.getStatus()
+```
+
+The service lives at:
+
+```text
+src/core/eeg/EEGStreamService.ts
+```
+
+Device guards live at:
+
+```text
+src/core/devices/contracts/deviceGuards.ts
+```
+
+EEG models live at:
+
+```text
+src/core/devices/models/eeg.ts
+```
+
+Channel-selection helpers live under:
+
+```text
+src/core/devices/eeg/
+```
+
+## Brain-metrics contract
+
+Devices such as BrainLink expose already-derived metrics instead of a raw multichannel EEG stream.
+
+The current production reference path is:
+
+```text
+BrainLinkAdapter
+      ↓
+DeviceManager
+      ↓
+BrainMetricsService
+      ↓
+Neuorrun
+```
+
+Typical normalized metrics are:
+
+```text
+attention
+meditation
+poorSignalLevel
+signalQualityPercent
+```
+
+When implementing a similar device, reuse the existing BrainMetrics contract/service rather than exposing vendor packet details to a module.
+
+Locate the exact current files with:
+
+```bash
+git grep -n "BrainLinkAdapter" src
+git grep -n "BrainMetricsService" src
+```
+
+## Choosing the correct contract
+
+Use:
+
+```text
+raw time-series EEG
+    → EEGDeviceAdapter + EEGStreamService
+
+derived attention/meditation-style values
+    → BrainMetrics contract + BrainMetricsService
+
+vendor SDK / Python scientific code / serial parser
+    → sidecar below the adapter
+```
+
+Choose based on the data exposed to KNeuron, not the marketing category of the device.
+
+---
+
+# Adding a new module
+
+Production modules should follow the existing module architecture.
+
+Recommended structure:
 
 ```text
 src/modules/<module-id>/
@@ -840,47 +1449,51 @@ src/modules/<module-id>/
 └── tests/
 ```
 
-Example:
+Not every module needs every subdirectory.
+
+For example:
 
 ```text
-src/modules/cortex/
-├── CortexModule.tsx
-├── cortexManifest.ts
-├── cortexModuleDefinition.ts
-├── components/
+src/modules/neurofeedback/
+├── NeurofeedbackModule.tsx
+├── neurofeedbackManifest.ts
+├── neurofeedbackModuleDefinition.ts
 ├── hooks/
-├── eeg/
-├── rendering/
-├── styles/
-└── tests/
+│   └── useNeurofeedbackEEG.ts
+└── styles/
+    └── neurofeedback.css
 ```
 
 ## Step 1 — create the manifest
 
-Example:
+KNeuron module metadata is represented by `KNeuronModuleManifest`.
+
+The existing contract contains the project-level module identity and capabilities.
+
+A typical manifest follows this pattern:
 
 ```ts
 import type {
   KNeuronModuleManifest,
 } from "../../types/module";
 
-export const cortexManifest: KNeuronModuleManifest = {
+export const neurofeedbackManifest: KNeuronModuleManifest = {
   schemaVersion: 1,
 
-  id: "cortex-3d",
+  id: "neurofeedback",
 
-  name: "Cortex 3D",
+  name: "Neurofeedback",
 
   version: "1.0.0",
 
   description:
-    "Real-time 3D visualization of EEG activity.",
+    "Example EEG neurofeedback module.",
 
   category: "VISUALIZATION",
 
   appearance: {},
 
-  entryPoint: "/modules/cortex-3d",
+  entryPoint: "/modules/neurofeedback",
 
   capabilities: {
     eeg: {
@@ -890,19 +1503,33 @@ export const cortexManifest: KNeuronModuleManifest = {
 };
 ```
 
+Use slug-style IDs:
+
+```text
+neurofeedback
+cortex-3d
+ssvep-control
+```
+
+Avoid IDs containing spaces, underscores or display-name casing.
+
 ## Step 2 — create the React component
+
+The current module component contract uses `KNeuronModuleProps`.
+
+Example:
 
 ```tsx
 import type {
   KNeuronModuleProps,
 } from "../../features/modules/moduleDefinition";
 
-export function CortexModule({
+export function NeurofeedbackModule({
   onRequestClose,
 }: KNeuronModuleProps) {
   return (
     <section>
-      <h1>Cortex 3D</h1>
+      <h1>Neurofeedback</h1>
 
       <button
         type="button"
@@ -915,53 +1542,67 @@ export function CortexModule({
 }
 ```
 
-## Step 3 — create the definition
+A module component should contain module UI/orchestration, not device transport code.
+
+## Step 3 — create the module definition
+
+The production module registry operates on complete definitions.
+
+Example:
 
 ```ts
 import {
-  CortexModule,
-} from "./CortexModule";
+  NeurofeedbackModule,
+} from "./NeurofeedbackModule";
 
 import {
-  cortexManifest,
-} from "./cortexManifest";
+  neurofeedbackManifest,
+} from "./neurofeedbackManifest";
 
 import type {
   KNeuronModuleDefinition,
 } from "../../features/modules/moduleDefinition";
 
-export const cortexModuleDefinition:
+export const neurofeedbackModuleDefinition:
   KNeuronModuleDefinition = {
-  manifest: cortexManifest,
-  component: CortexModule,
+  manifest: neurofeedbackManifest,
+  component: NeurofeedbackModule,
 };
 ```
 
-## Step 4 — register it as built-in
+The definition is the unit that binds:
 
-Edit:
+```text
+manifest + React component
+```
+
+## Step 4 — register the module
+
+The built-in production registration entry point is:
 
 ```text
 src/features/modules/registerBuiltInModules.ts
 ```
 
-Import:
+Import the definition there:
 
 ```ts
 import {
-  cortexModuleDefinition,
-} from "../../modules/cortex/cortexModuleDefinition";
+  neurofeedbackModuleDefinition,
+} from "../../modules/neurofeedback/neurofeedbackModuleDefinition";
 ```
 
-Then return:
+and include it in the returned/registered definitions using the same pattern as the existing Cortex, Miner and Neuorrun definitions.
 
-```ts
-return [
-  cortexModuleDefinition,
-];
+To verify the current production registry:
+
+```bash
+git grep -n "CortexModule" src/features/modules src/modules
+git grep -n "NeuorrunModule" src/features/modules src/modules
+git grep -n "registerBuiltInModules" src
 ```
 
-Do not edit:
+Do **not** add a hard-coded module card to:
 
 ```text
 App.tsx
@@ -970,11 +1611,13 @@ ModuleHost.tsx
 ModuleManager.ts
 ```
 
-just to add another module.
+just because a new module was added.
 
-## Step 5 — declare requirements
+The Dashboard should discover production modules through the canonical registry.
 
-A generic EEG visualization:
+## Step 5 — declare device/capability requirements
+
+A generic EEG module:
 
 ```ts
 capabilities: {
@@ -984,7 +1627,7 @@ capabilities: {
 }
 ```
 
-An SSVEP module:
+An SSVEP-style module that requires specific channels:
 
 ```ts
 capabilities: {
@@ -1003,7 +1646,9 @@ capabilities: {
 }
 ```
 
-## Step 6 — keep hardware out of the module
+Declare normalized EEG labels, not physical device indexes.
+
+## Step 6 — consume EEG through `EEGStreamService`
 
 Allowed:
 
@@ -1016,45 +1661,161 @@ import {
 Not allowed:
 
 ```ts
-import { BrainAccessAdapter } from "...";
-import { SimulationEEGAdapter } from "...";
+import { BrainAccessEEGAdapter } from "...";
+import { BrainAccessBridge } from "...";
 ```
 
-The module must not care which adapter is active.
-
-## Step 7 — release resources
-
-Any module that acquires EEG must release the handle.
-
-Example:
+Acquire all channels:
 
 ```ts
-const handle =
-  await eegStreamService.acquire({
-    channels: "all",
-  });
-
-await handle.release();
+const handle = await eegStreamService.acquire({
+  channels: "all",
+});
 ```
 
-For React modules, cleanup must be tied to component lifecycle.
+Acquire selected normalized channels:
 
-The implementation must also handle the race where the component unmounts before an asynchronous `acquire()` finishes.
+```ts
+const handle = await eegStreamService.acquire({
+  channels: ["O1", "Oz", "O2"],
+});
+```
 
-## Step 8 — module tests
+Use live batches:
+
+```ts
+const handle = await eegStreamService.acquire({
+  channels: ["O1", "Oz", "O2"],
+
+  onBatch: (batch) => {
+    // Consume normalized EEG data.
+  },
+});
+```
+
+Read a buffered historical window:
+
+```ts
+const window = eegStreamService.getLatestWindow(
+  2.0,
+  ["O1", "Oz", "O2"],
+);
+```
+
+Do not create another global hardware ring buffer inside the module.
+
+## Step 7 — use safe React lifecycle cleanup
+
+Every successful EEG acquisition must eventually be released.
+
+A safe pattern for an asynchronous acquire is:
+
+```ts
+useEffect(() => {
+  let disposed = false;
+  let handle: EEGStreamHandle | null = null;
+
+  void (async () => {
+    try {
+      const acquired = await eegStreamService.acquire({
+        channels: ["O1", "Oz", "O2"],
+
+        onBatch: (batch) => {
+          if (disposed) {
+            return;
+          }
+
+          // Update module-specific processing/state.
+        },
+      });
+
+      if (disposed) {
+        await acquired.release();
+        return;
+      }
+
+      handle = acquired;
+    } catch (error) {
+      if (!disposed) {
+        // Surface module-level error state.
+      }
+    }
+  })();
+
+  return () => {
+    disposed = true;
+
+    if (handle) {
+      void handle.release();
+    }
+  };
+}, []);
+```
+
+The important invariant is:
+
+```text
+every successful acquire() → one effective release()
+```
+
+The module must also handle the race where it unmounts before `acquire()` finishes.
+
+## Step 8 — use BrainMetrics through the service
+
+For attention/meditation-style modules, copy the subscription lifecycle used by Neuorrun.
+
+Locate it with:
+
+```bash
+git grep -n "BrainMetricsService" src/modules src/core
+git grep -n "NeuorrunModule" src/modules
+```
+
+Do not connect to BrainLink or parse ThinkGear packets in the module.
+
+## Step 9 — cleanup all owned resources
+
+On unmount, release:
+
+```text
+EEGStreamHandle
+brain-metrics subscription
+classifier/event subscriptions
+setInterval
+setTimeout
+requestAnimationFrame
+DOM listeners
+WebSocket/event listeners
+module-owned Three.js resources
+module-owned Unity/event hooks
+```
+
+For module-owned Three.js resources, dispose GPU resources that are no longer needed:
+
+```text
+geometry.dispose()
+material.dispose()
+texture.dispose()
+renderer.dispose() when the renderer itself is module-owned
+```
+
+## Step 10 — test the module
 
 At minimum test:
 
 ```text
 manifest validation
-module definition registration
-duplicate module ID behavior
+definition registration
+unique module ID behavior
 component mounting
 component unmounting
-ErrorBoundary behavior
-EEG requirements
-missing channel behavior
-EEG stream cleanup
+module error boundary behavior
+missing/incompatible device state
+required EEG channels
+EEG acquisition
+EEG release on unmount
+async acquire/unmount race
+module re-entry
 ```
 
 Manual flow:
@@ -1064,120 +1825,41 @@ Dashboard
 → module card visible
 → Open
 → module mounted
-→ focus mode active
-→ close/back
-→ module resources released
-→ runtime state returns correctly
-```
-
-Then:
-
-```powershell
-npm run quality
+→ use core feature
+→ Close/Back
+→ resources released
+→ open module again
+→ works without application restart
 ```
 
 ---
 
-# 14. Device architecture
+# Adding a new device
 
-The device layer is generic.
+Assume a new raw EEG device.
 
-```text
-DeviceRegistry
-     |
-DeviceManager
-     |
-DeviceAdapter
-     |
-     +-- EEGDeviceAdapter
-     |    |
-     |    +-- SimulationEEGAdapter
-     |    +-- BrainAccessAdapter     future
-     |    +-- OpenBCIAdapter         future
-     |    +-- MuseAdapter            future
-     |
-     +-- future non-EEG adapters
-```
-
-## DeviceRegistry
-
-Responsible for:
-
-- registering adapters
-- unregistering adapters
-- finding adapters by ID
-- exposing all adapters
-- notifying subscribers
-
-It does not own hardware connection logic.
-
-## DeviceManager
-
-Responsible for:
-
-- global active device
-- connect
-- disconnect
-- busy state
-- active status
-- forwarding device status changes
-
-Current limitation:
-
-> KNeuron currently supports one active device at a time through `DeviceManager`.
-
-This does not prevent multiple modules from sharing one active EEG device.
-
-The one active EEG stream can have many consumers.
-
-## DeviceAdapter
-
-Generic contract:
+Recommended adapter structure:
 
 ```text
-info
-getStatus()
-connect()
-disconnect()
-subscribeStatus()
+src/core/devices/adapters/<device-slug>/
+├── <DeviceName>Adapter.ts
+├── <DeviceName>Bridge.ts        # if a sidecar/native bridge is required
+├── models.ts                    # optional device-private protocol types
+└── <DeviceName>Adapter.test.ts
 ```
 
-## EEGDeviceAdapter
-
-Additional EEG contract:
-
-```text
-getStreamInfo()
-startStream()
-stopStream()
-isStreaming()
-subscribeSamples()
-```
-
----
-
-# 15. Adding a new device
-
-Assume a new EEG device:
-
-```text
-OpenBCI Cyton
-```
-
-## Step 1 — create adapter folder
+Example:
 
 ```text
 src/core/devices/adapters/openbci/
+├── OpenBCIAdapter.ts
+├── OpenBCIBridge.ts
+└── OpenBCIAdapter.test.ts
 ```
 
-Files:
+## Step 1 — implement the correct contract
 
-```text
-OpenBCIAdapter.ts
-OpenBCIAdapter.test.ts
-```
-
-## Step 2 — implement the EEG adapter contract
+For raw EEG:
 
 ```ts
 export class OpenBCIAdapter
@@ -1187,15 +1869,17 @@ export class OpenBCIAdapter
 }
 ```
 
-For a non-EEG device use:
+For non-EEG devices, implement the appropriate generic/specialized contract instead.
 
-```ts
-DeviceAdapter
+The TypeScript interface is always the compiler-enforced source of truth.
+
+Find existing implementations:
+
+```bash
+git grep -n "implements EEGDeviceAdapter" src/core/devices
 ```
 
-instead.
-
-## Step 3 — define stable metadata
+## Step 2 — define stable metadata
 
 Example:
 
@@ -1210,70 +1894,65 @@ readonly info = {
 } as const;
 ```
 
-IDs should be:
+The ID should be:
 
-- lowercase
-- stable
-- unique
-- letters/numbers/hyphens only
+```text
+stable
+lowercase
+unique
+independent of COM port
+independent of temporary Bluetooth address
+```
 
-## Step 4 — implement lifecycle
+## Step 3 — implement lifecycle
 
-Expected lifecycle:
+The generic device lifecycle is:
 
 ```text
 disconnected
-     ↓
+     ↓ connect
 connecting
      ↓
 connected
-     ↓
+     ↓ disconnect
 disconnecting
      ↓
 disconnected
 ```
 
-On failure:
+A failure should leave a clear recoverable error/disconnected state.
 
-```text
-connecting
-     ↓
-error
-```
+Status changes must propagate through the common status subscription mechanism.
 
-Status changes must notify `subscribeStatus(...)`.
+Repeated disconnect/cleanup calls should be safe wherever practical.
 
-## Step 5 — expose stream metadata
+## Step 4 — expose stream metadata
 
-Example:
-
-```ts
-getStreamInfo()
-```
-
-returns:
+For an EEG device, `getStreamInfo()` returns device-specific metadata such as:
 
 ```ts
 {
   sampleRateHz: 250,
-  channels: [...]
+  channels: [
+    // normalized EEG channel descriptors
+  ],
 }
 ```
 
-Do not hard-code globally that every EEG device has:
+Never assume globally that every EEG device has:
 
 ```text
 250 Hz
 32 channels
-same electrodes
-same order
+the same electrodes
+the same order
 ```
 
-Each adapter reports its own metadata.
+Each adapter reports its own stream characteristics.
 
-## Step 6 — normalize channels
+## Step 5 — normalize channels at the adapter boundary
 
-Example:
+A normalized channel can conceptually contain:
 
 ```ts
 {
@@ -1292,69 +1971,95 @@ index
 = normalized KNeuron stream index
 
 sourceIndex
-= original hardware/driver index
+= native/vendor source index
 ```
 
-Modules must never use `sourceIndex`.
+Modules use:
 
-## Step 7 — emit normalized batches
+```text
+label / normalized index
+```
 
-The normalized matrix layout is:
+Modules must never use:
+
+```text
+sourceIndex
+vendor array position
+BrainAccess physical index
+```
+
+## Step 6 — emit normalized batches
+
+The current normalized EEG layout is:
 
 ```text
 values[channelIndex][sampleIndex]
 ```
 
-Example:
+A batch contains fields such as:
 
-```ts
-{
-  sequenceStart: 1000,
-
-  timestampStartMs: 1710000000000,
-
-  sampleRateHz: 250,
-
-  sampleCount: 10,
-
-  channelCount: 32,
-
-  values: [
-    [...],
-    [...],
-    ...
-  ],
-
-  sourceSampleNumberStart: 40000,
-}
+```text
+sequenceStart
+timestampStartMs
+sampleRateHz
+sampleCount
+channelCount
+values
+optional source/native sample-number information
 ```
 
-If the hardware exposes a native sample number, preserve it through:
+If the hardware exposes a native monotonically increasing sample number, preserve it. It is useful for diagnosing dropped samples.
 
-```ts
-sourceSampleNumberStart
+Once streaming starts, do not silently change:
+
+```text
+sample rate
+channel count
+channel ordering
+matrix orientation
 ```
 
-This is useful for detecting dropped samples.
+`EEGStreamService` treats these as stream invariants.
 
-## Step 8 — register adapter
+## Step 7 — implement stream operations
 
-Edit:
+The adapter must correctly implement the EEG methods required by the current interface:
+
+```text
+getStreamInfo()
+subscribeSamples()
+startStream()
+stopStream()
+isStreaming()
+```
+
+`subscribeSamples()` must return an unsubscribe function.
+
+`startStream()` should start the physical acquisition only once.
+
+`stopStream()` must release streaming resources.
+
+A module must never call these directly. `EEGStreamService` owns the shared physical stream lifecycle.
+
+## Step 8 — register the adapter
+
+The built-in device registration entry point is:
 
 ```text
 src/core/devices/registerBuiltInDevices.ts
 ```
 
-Example:
+Add the new adapter using the same pattern as the production BrainAccess and BrainLink registrations.
 
-```ts
-return [
-  new SimulationEEGAdapter(),
-  new OpenBCIAdapter(),
-];
+Confirm the current composition with:
+
+```bash
+git grep -n "BrainAccessEEGAdapter" src/core/devices
+git grep -n "BrainLinkAdapter" src/core/devices
+git grep -n "registerBuiltInDevices" src
 ```
 
-Do not modify these merely because another manufacturer is supported:
+Do not modify these just because another manufacturer was added:
 
 ```text
 DeviceManager.ts
@@ -1364,1151 +2069,777 @@ EEGStreamService.ts
 App.tsx
 ```
 
-If manufacturer-specific logic is needed there, the adapter abstraction is leaking.
+If one of those requires manufacturer-specific branching, the adapter abstraction is probably leaking.
 
-## Step 9 — write tests
+## Step 9 — add adapter tests
 
-Required adapter tests should cover:
+Minimum tests:
 
 ```text
-initial disconnected state
+initial status
 metadata
 connect
 disconnect
 status notifications
+failed connect cleanup
+reconnect
 stream info
 sample rate
 channel map
-stream cannot start before connection
+stream cannot start in invalid state
 stream start
 stream stop
 batch dimensions
 sequence numbering
 source sample numbering when available
-unsubscribe
+subscribe/unsubscribe
 disconnect while streaming
-reconnect
+malformed bridge/vendor message
+bridge process failure
 ```
 
-## Step 10 — manual validation
+## Step 10 — validate with real hardware
 
-Run:
-
-```powershell
-npm run quality
-npm run tauri:dev
-```
-
-Then verify:
+Verify:
 
 ```text
-Device
-→ adapter appears
-→ Connect
-→ connecting/connected states
-→ DevicePanel updates
-→ Disconnect
-→ disconnected state
+connect
+disconnect
+reconnect
+start stream
+stop stream
+open Cortex / another consumer
+leave module
+open another consumer
+close application while connected
+lose Bluetooth/unplug hardware
+recover and reconnect
+```
+
+A mocked unit test does not replace hardware validation.
+
+---
+
+# Adding a new sidecar
+
+Use a sidecar when a dependency should remain outside the Tauri/React process, for example:
+
+```text
+Python scientific stack
+vendor Python SDK
+serial/RFCOMM parser
+CPU-heavy classifier
+native SDK wrapper
+```
+
+Do not use a sidecar for ordinary React/UI logic.
+
+## Recommended layout
+
+```text
+<name>-sidecar/
+├── bridge.py
+├── requirements.txt
+├── <binary-name>.spec
+├── build.ps1
+├── diagnose.py          # optional but recommended for hardware
+└── tests/               # optional
+```
+
+The current production examples are:
+
+```text
+brainaccess-sidecar/
+ssvep-sidecar/
+brainlink-sidecar/
+```
+
+## IPC protocol
+
+Sidecars should use the same JSONL principle as the current bridges:
+
+```text
+one JSON message per line
+```
+
+Example request:
+
+```json
+{"id":17,"command":"status"}
+```
+
+Example response:
+
+```json
+{"id":17,"ok":true,"result":{"state":"connected"}}
+```
+
+Example asynchronous event:
+
+```json
+{"event":"samples","payload":{"sampleRateHz":250,"sampleCount":8}}
+```
+
+The exact commands belong to the sidecar/TypeScript bridge protocol.
+
+### stdout rule
+
+When stdout carries JSONL IPC:
+
+```text
+stdout = protocol JSON only
+stderr = diagnostic logs
+```
+
+Bad:
+
+```python
+print("Connected!")
+print(json.dumps(message))
+```
+
+Good:
+
+```python
+print("Connected!", file=sys.stderr)
+print(json.dumps(message), flush=True)
+```
+
+A single non-JSON diagnostic line on stdout can corrupt the protocol.
+
+## TypeScript bridge ownership
+
+The TypeScript bridge should own:
+
+```text
+sidecar spawn
+stdin writes
+stdout parsing
+request correlation
+async event routing
+process errors
+pending-request rejection
+kill/shutdown
+```
+
+A React module should never spawn a hardware/classifier sidecar directly.
+
+## PyInstaller build files
+
+Commit:
+
+```text
+requirements.txt
+*.spec
+build.ps1
+source .py files
+optional diagnose.py
+```
+
+Do not commit:
+
+```text
+.venv/
+build/
+dist/
+generated binary
+```
+
+## Add the sidecar to Tauri
+
+Edit:
+
+```text
+src-tauri/tauri.conf.json
+```
+
+and add the base binary name to `externalBin`.
+
+Example:
+
+```json
+"externalBin": [
+  "binaries/brainaccess-bridge",
+  "binaries/ssvep-classifier",
+  "binaries/brainlink-bridge",
+  "binaries/example-bridge"
+]
+```
+
+Do not add:
+
+```text
+.exe
+target triple
+absolute path
+```
+
+to the `externalBin` base name.
+
+Typical generated files are:
+
+```text
+Windows:
+example-bridge-x86_64-pc-windows-msvc.exe
+
+Linux:
+example-bridge-x86_64-unknown-linux-gnu
+```
+
+## Update Tauri capabilities
+
+Review:
+
+```text
+src-tauri/capabilities/
+```
+
+The sidecar must be included in the allowed spawn scope using the same pattern as the existing production sidecars.
+
+Keep permissions narrow.
+
+The current bridges require the equivalents of:
+
+```text
+spawn
+stdin write
+kill
+```
+
+Do not authorize arbitrary shell commands simply to avoid defining the sidecar scope correctly.
+
+## Update both bootstrap scripts
+
+A production sidecar is not fully integrated until a clean machine can recreate it.
+
+Update:
+
+```text
+setup-and-run.ps1
+setup-and-run.sh
+```
+
+They must:
+
+```text
+create/install the Python environment
+install requirements
+run the sidecar build
+place/copy the target-specific binary into src-tauri/binaries/
+verify that the expected binary exists
+fail clearly when packaging fails
+```
+
+## Sidecar tests
+
+At minimum test:
+
+```text
+valid request
+unknown request
+malformed JSON
+SDK/serial exception
+process EOF
+process crash
+shutdown
+reconnect
+multiple sequential requests
+async event output
+stderr logging
+stdout protocol purity
+```
+
+For deterministic classifiers, keep test fixtures with expected results where possible.
+
+---
+
+# Registry and composition — step by step
+
+The registry/composition layer is where code becomes part of the production application.
+
+Do not create a second parallel registry.
+
+## Register a module
+
+Canonical entry point:
+
+```text
+src/features/modules/registerBuiltInModules.ts
+```
+
+Procedure:
+
+```text
+1. create manifest
+2. create React component
+3. create ModuleDefinition
+4. import ModuleDefinition into registerBuiltInModules.ts
+5. add it using the same production-registration pattern
+6. verify unique ID
+7. verify Dashboard card appears automatically
+8. verify open/close lifecycle
+```
+
+Do not add duplicate conditions to `ModuleHost`.
+
+Useful search:
+
+```bash
+git grep -n "registerBuiltInModules" src
+git grep -n "CortexModule" src
+git grep -n "MinerModule" src
+git grep -n "NeuorrunModule" src
+```
+
+## Register a device
+
+Canonical entry point:
+
+```text
+src/core/devices/registerBuiltInDevices.ts
+```
+
+Procedure:
+
+```text
+1. implement the adapter
+2. import it into registerBuiltInDevices.ts
+3. instantiate/register exactly once
+4. verify DeviceManager sees it
+5. verify Device page lists it
+6. connect/disconnect
+7. verify active-device state
+```
+
+Useful search:
+
+```bash
+git grep -n "registerBuiltInDevices" src
+git grep -n "BrainAccessEEGAdapter" src
+git grep -n "BrainLinkAdapter" src
+```
+
+Do not instantiate another copy inside a module.
+
+## Register a sidecar
+
+Procedure:
+
+```text
+1. implement Python/native sidecar
+2. implement TypeScript bridge
+3. connect bridge to adapter/service
+4. add externalBin entry
+5. add Tauri capability scope
+6. update Windows bootstrap
+7. update Linux bootstrap
+8. update .gitignore if necessary
+9. test from a clean checkout
+```
+
+Useful search:
+
+```bash
+git grep -n "externalBin" src-tauri
+git grep -n "brainaccess-bridge" src-tauri
 ```
 
 ---
 
-# 16. EEG architecture
+# Lifecycle and cleanup rules
 
-The shared EEG core solves this problem:
+Resource ownership must always be explicit.
 
-> One headset can provide data to multiple KNeuron modules without opening the hardware stream multiple times.
+| Resource | Owner | Required cleanup |
+| --- | --- | --- |
+| Physical device connection | Adapter / DeviceManager | disconnect |
+| Physical raw EEG stream | EEGStreamService + adapter | stop after final consumer |
+| EEG consumer | Module/hook calling `acquire()` | `handle.release()` |
+| Brain-metrics subscription | Module/hook | unsubscribe |
+| Python sidecar process | TypeScript bridge/adapter | terminate |
+| Classifier request | classifier client/service | resolve/reject/cancel |
+| DOM listener | component/hook | remove listener |
+| Timer | creator | clear timer |
+| `requestAnimationFrame` | renderer/module | cancel frame |
+| Three.js resource | renderer/module/cache | dispose when not shared |
+| Unity bridge listener | Neuorrun integration | remove hook |
+
+## Shared EEG lifecycle
+
+The shared service is reference-counted conceptually:
+
+```text
+Cortex acquire
+consumer count = 1
+        ↓
+Miner acquire
+consumer count = 2
+        ↓
+Cortex release
+consumer count = 1
+physical stream remains active
+        ↓
+Miner release
+consumer count = 0
+physical stream stops
+```
+
+Therefore a module must never call:
+
+```text
+adapter.stopStream()
+```
+
+directly.
+
+## Device switching
+
+Do not switch to another raw EEG adapter while consumers of the current stream are still active.
+
+Correct order:
+
+```text
+close/release consuming modules
+stop shared stream through consumer lifecycle
+disconnect old device
+connect new device
+```
+
+## Async races
+
+A component may unmount while an async connection/acquire request is still resolving.
+
+Always account for late completion.
+
+If a resource finishes acquisition after the component was disposed, release it immediately.
+
+## Sidecar crash
+
+On unexpected process exit:
+
+```text
+mark adapter/service unhealthy
+reject pending requests
+remove listeners
+clear request maps
+allow future reconnect
+do not leave promises waiting forever
+```
+
+---
+
+# Implementation checklists
+
+## New raw EEG device
+
+- [ ] Stable unique `info.id`.
+- [ ] Implements common device lifecycle.
+- [ ] Implements `EEGDeviceAdapter`.
+- [ ] Reports its own sample rate.
+- [ ] Reports normalized channel metadata.
+- [ ] Vendor indexes remain inside adapter/bridge.
+- [ ] Channel order is stable during a stream.
+- [ ] `subscribeSamples()` can unsubscribe.
+- [ ] `startStream()` is not called by modules.
+- [ ] `stopStream()` releases resources.
+- [ ] Reconnect works.
+- [ ] Failed connect leaves recoverable state.
+- [ ] Registered once in `registerBuiltInDevices.ts`.
+- [ ] Device page discovers it through normal architecture.
+- [ ] `EEGStreamService` can consume it.
+- [ ] Multiple consumers share one physical stream.
+- [ ] Unit tests cover malformed input and lifecycle.
+- [ ] Real Bluetooth/unplug-loss behavior tested.
+
+## New brain-metrics device
+
+- [ ] Reuses or deliberately extends BrainMetrics contract.
+- [ ] Vendor packets stay below service boundary.
+- [ ] Metrics use normalized names/units.
+- [ ] Subscription cleanup works.
+- [ ] Signal-quality semantics documented.
+- [ ] Registered once through production device composition.
+- [ ] Modules require no manufacturer-specific conditions.
+
+## New module
+
+- [ ] Lives under `src/modules/<module-id>/`.
+- [ ] Has a manifest.
+- [ ] Has a `KNeuronModuleDefinition`.
+- [ ] Stable unique module ID.
+- [ ] Registered in `registerBuiltInModules.ts`.
+- [ ] Dashboard entry is registry-driven.
+- [ ] Uses service, not concrete hardware.
+- [ ] EEG requested by normalized labels.
+- [ ] Every EEG handle is released.
+- [ ] Every subscription is removed.
+- [ ] Timers/animation frames are cleaned up.
+- [ ] Handles no-device/incompatible-device state.
+- [ ] Handles service/sidecar errors.
+- [ ] Re-entry works without restarting app.
+- [ ] Unit tests cover mounting/unmounting and cleanup.
+
+## New sidecar
+
+- [ ] One clear responsibility.
+- [ ] JSONL protocol documented.
+- [ ] stdout contains only protocol JSON.
+- [ ] logs go to stderr.
+- [ ] `.spec` committed.
+- [ ] `requirements.txt` committed.
+- [ ] generated `.venv/build/dist` ignored.
+- [ ] generated binary ignored.
+- [ ] `externalBin` updated.
+- [ ] Tauri capability updated narrowly.
+- [ ] TypeScript bridge owns process lifecycle.
+- [ ] Windows bootstrap builds/verifies it.
+- [ ] Linux bootstrap builds/verifies it.
+- [ ] clean-machine setup tested.
+- [ ] crash/EOF/reconnect tested.
+
+## Pre-merge checklist
+
+Run:
+
+```bash
+npm run format
+npm run typecheck
+npm test
+npm run lint
+```
+
+If available:
+
+```bash
+npm run quality
+```
+
+Then perform:
+
+```text
+fresh application start
+connect device
+open new module
+exercise core feature
+close module
+open it again
+disconnect
+reconnect
+close application
+```
+
+Hardware/sidecar changes must also regression-test:
+
+```text
+Cortex 3D
+TaaLON Miner
+Neuorrun
+```
+
+---
+
+# Example extension: simple EEG module
+
+Suppose a module needs:
+
+```text
+O1
+Oz
+O2
+```
 
 Correct architecture:
 
 ```text
-32-channel EEG
-      |
+active EEG hardware
+       ↓
+EEGDeviceAdapter
+       ↓
 EEGStreamService
-      |
-      +--> Cortex       all / many channels
-      |
-      +--> SSVEP        selected 6 channels
-      |
-      +--> Miner        selected 6 channels
+       ↓
+ExampleModule
 ```
 
-The system should have:
+Incorrect architecture:
 
 ```text
-1 active device connection
-1 physical EEG stream
-1 shared ring buffer
-N consumers
+ExampleModule
+       ↓
+BrainAccessBridge
+       ↓
+BrainAccess SDK
 ```
 
-Not:
-
-```text
-Cortex opens device
-SSVEP opens device again
-Miner opens device again
-```
-
-## EEGSampleBatch
-
-Adapter batches contain:
-
-```text
-sequenceStart
-timestampStartMs
-sampleRateHz
-sampleCount
-channelCount
-values
-optional sourceSampleNumberStart
-```
-
-## EEGRingBuffer
-
-Stores a fixed number of the newest samples.
-
-It keeps:
-
-- values
-- timestamps
-- KNeuron sequence numbers
-- optional native/source sample numbers
-
-The current default service history duration is configured in `EEGStreamService`.
-
-## EEGStreamService
-
-The first consumer starts the adapter stream.
-
-Additional consumers reuse it.
-
-The last released consumer stops the adapter stream.
-
-Example:
-
-```text
-consumer 1 acquired
-→ physical stream starts
-
-consumer 2 acquired
-→ physical stream already running
-
-consumer 1 released
-→ physical stream remains
-
-consumer 2 released
-→ physical stream stops
-```
-
----
-
-# 17. Using EEG inside a module
-
-## Real-time stream
-
-Example:
+The module should acquire only application-level channels:
 
 ```ts
-import {
-  eegStreamService,
-} from "../../core/eeg";
+const handle = await eegStreamService.acquire({
+  channels: ["O1", "Oz", "O2"],
 
-const handle =
-  await eegStreamService.acquire({
-    channels: [
-      "O1",
-      "O2",
-      "Oz",
-      "PO3",
-      "PO4",
-      "POz",
-    ],
-
-    onBatch: (batch) => {
-      // Real-time selected EEG batch.
-    },
-  });
+  onBatch: (batch) => {
+    // Module-specific processing.
+  },
+});
 ```
 
-## All channels
-
-Cortex-like module:
-
-```ts
-const handle =
-  await eegStreamService.acquire({
-    channels: "all",
-
-    onBatch: (batch) => {
-      // Full normalized device stream.
-    },
-  });
-```
-
-## Historical window
-
-Example:
-
-```ts
-const trial =
-  eegStreamService.getLatestWindow(
-    2,
-    [
-      "O1",
-      "O2",
-      "Oz",
-      "PO3",
-      "PO4",
-      "POz",
-    ],
-  );
-```
-
-At 250 Hz:
-
-```text
-2 s × 250 samples/s
-= 500 samples per selected channel
-```
-
-## Cleanup
-
-Mandatory:
+and release:
 
 ```ts
 await handle.release();
 ```
 
-Never leave an invisible EEG consumer active after a module closes.
+when the module no longer owns the consumer.
 
 ---
 
-# 18. Channel selection
+# Example extension: sidecar-backed EEG device
 
-Hardware channel count and module channel requirements are separate concepts.
-
-Example:
+Recommended dependency graph:
 
 ```text
-Device:
-32 channels
-
-SSVEP module:
-6 required channels
-```
-
-Request:
-
-```ts
-channels: [
-  "O1",
-  "O2",
-  "Oz",
-  "PO3",
-  "PO4",
-  "POz",
-]
-```
-
-The service resolves those labels against the active stream.
-
-The module receives the selected channels in the requested order.
-
-## Never hard-code native indexes in modules
-
-Wrong:
-
-```ts
-const o1 = values[11];
-const o2 = values[1];
-const oz = values[6];
-```
-
-Correct:
-
-```ts
-channels: [
-  "O1",
-  "O2",
-  "Oz",
-]
-```
-
-Hardware-specific mappings belong inside the adapter.
-
-## Matching behavior
-
-Channel matching is tolerant of simple casing/whitespace differences.
-
-Examples:
-
-```text
-"O1"
-"o1"
-" O1 "
-```
-
-may resolve to the same channel.
-
-It deliberately does not perform fuzzy anatomical substitutions.
-
-Example:
-
-```text
-PO3 != P3
-```
-
-Missing required channels should fail explicitly.
-
----
-
-# 19. Simulation EEG
-
-The built-in simulator verifies the entire Device/EEG architecture without physical hardware.
-
-Current properties:
-
-```text
-ID: simulation-eeg
-Kind: EEG
-Transport: simulation
-Manufacturer: KNeuron
-Sample rate: 250 Hz
-Channels: 32
-```
-
-It includes channels required by the future SSVEP/Miner workflow, including:
-
-```text
-O1
-O2
-Oz
-PO3
-PO4
-POz
-```
-
-The simulator emits deterministic synthetic signals rather than random data.
-
-This makes automated tests repeatable.
-
-The simulator currently generates synthetic components including a dominant alpha-like component and a weaker harmonic component.
-
-It is a test/diagnostic source, not a physiological model of real EEG.
-
----
-
-# 20. Tests required by change type
-
-## UI-only change
-
-Run:
-
-```powershell
-npm run format
-npm run typecheck
-npm run lint
-npm test
-npm run quality
-```
-
-Then manually inspect the affected screen.
-
-## Settings change
-
-Verify:
-
-```text
-change setting
-→ restart
-→ setting persists
-
-reset settings
-→ defaults restored
-→ notification displayed
-```
-
-## Module infrastructure change
-
-Run tests covering:
-
-```text
-moduleValidation
-ModuleRegistry
-ModuleManager
-ModuleComponentRegistry
-registerModuleDefinition
-ModuleHost
-ModuleErrorBoundary
-```
-
-Manual flow:
-
-```text
-Dashboard
-→ Open
-→ module runtime starts
-→ module renders or fallback renders
-→ Back
-→ runtime closes
-```
-
-## New module
-
-At minimum test:
-
-```text
-manifest validation
-definition registration
-duplicate ID rejection
-component mount
-component unmount
-error isolation
-required EEG handling
-required channels
-stream handle cleanup
-```
-
-Then:
-
-```powershell
-npm run quality
-npm run tauri:dev
-```
-
-## New device
-
-At minimum test:
-
-```text
-initial state
-metadata
-connect
-disconnect
-errors
-stream metadata
-stream start
-stream stop
-sample shape
-channel mapping
-sequence numbering
-native sample number if available
-unsubscribe
-disconnect while streaming
-reconnect
-```
-
-## EEG Core change
-
-Always run tests for:
-
-```text
-SimulationEEGAdapter
-channelSelection
-EEGRingBuffer
+Example EEG hardware
+        ↓
+example-sidecar/bridge.py
+        ↓ JSONL
+ExampleBridge.ts
+        ↓
+ExampleEEGAdapter.ts
+        ↓
+DeviceManager
+        ↓
 EEGStreamService
+        ↓
+modules
 ```
 
-Then:
+Suggested new files:
 
-```powershell
-npm run quality
+```text
+example-sidecar/
+├── bridge.py
+├── requirements.txt
+├── example-bridge.spec
+├── build.ps1
+└── diagnose.py
+
+src/core/devices/adapters/example/
+├── ExampleBridge.ts
+├── ExampleEEGAdapter.ts
+└── ExampleEEGAdapter.test.ts
 ```
 
-## Before release
+Then update:
 
-Always:
-
-```powershell
-npm run quality:full
-npm audit
-npm run tauri:build
+```text
+src/core/devices/registerBuiltInDevices.ts
+src-tauri/tauri.conf.json
+src-tauri/capabilities/
+setup-and-run.ps1
+setup-and-run.sh
+README.md
 ```
+
+That is the complete production integration surface for a new sidecar-backed device.
 
 ---
 
-# 21. Logging and notifications
+# Extension anti-patterns
 
-## Logger
-
-Use the central logger:
+Bad:
 
 ```ts
-logger.debug(...)
-logger.info(...)
-logger.warning(...)
-logger.error(...)
+const oz = batch.values[6];
 ```
 
-Avoid scattered production:
+because the module assumes a physical/native channel index.
 
-```ts
-console.log(...)
+Prefer:
+
+```text
+request "Oz" through EEGStreamService
 ```
 
-Example:
+Bad:
 
 ```ts
-logger.info(
-  "DeviceManager",
-  `Device connected: ${deviceId}`,
-);
+await brainAccessAdapter.startStream();
 ```
 
-The development DebugPanel consumes central log entries.
+inside a module.
 
-## Notifications
-
-Use notifications for user-facing state.
-
-Example:
+Prefer:
 
 ```ts
-notificationStore.add({
-  type: "success",
-  title: "Device connected",
-  message: "Simulation EEG",
+const handle = await eegStreamService.acquire({
+  channels: "all",
 });
 ```
 
-Do not create notifications for high-frequency EEG batches.
-
----
-
-# 22. Settings
-
-Settings are managed through:
-
-```text
-SettingsStore
-→ useSettings
-→ Settings UI
-```
-
-Current settings include:
-
-```text
-confirmBeforeClosingModule
-showDebugInformation
-```
-
-Settings are non-sensitive preferences.
-
-Do not put secrets in frontend/localStorage persistence.
-
-Do not store:
-
-```text
-passwords
-API keys
-authentication tokens
-private credentials
-```
-
-in `SettingsStore`.
-
----
-
-# 23. Development vs production
-
-Development-only behavior is controlled through `APP_CONFIG`.
-
-Development may include:
-
-- development Test Module
-- Developer Settings section
-- DebugPanel
-
-Production must hide development-only behavior.
-
-Expected:
-
-```text
-development:
-Test Module may exist
-Developer section may exist
-DebugPanel may be enabled
-
-production:
-Test Module absent
-Developer section absent
-DebugPanel absent
-```
-
-The development Test Module may still be manifest-only.
-
-In that case `ModuleHost` intentionally shows the fallback:
-
-```text
-Module implementation not registered
-```
-
-This is valid development behavior.
-
-Built-in production modules will register both:
-
-```text
-manifest
-+
-React component
-```
-
-through `registerModuleDefinition(...)`.
-
----
-
-# 24. Tauri security
-
-KNeuron uses narrow Tauri permissions.
-
-Current native shell behavior requires only specific window operations such as:
-
-```text
-close
-minimize
-toggle maximize
-start dragging
-```
-
-Avoid broad permissions unless needed.
-
-Do not enable unrestricted capabilities for convenience.
-
-Examples requiring explicit justification:
-
-```text
-filesystem access
-arbitrary file paths
-shell execution
-process spawning
-external network access
-```
-
-## Content Security Policy
-
-Development and production CSP may differ.
-
-Production should remain stricter.
-
-Do not weaken production CSP only to solve Vite/HMR development behavior.
-
-## Native feature workflow
-
-When a new native feature is required:
-
-```text
-1. identify exact native operation
-2. add minimum permission
-3. test development mode
-4. test production build
-5. document the reason
-```
-
----
-
-# 25. Versioning
-
-Keep project version metadata synchronized.
-
-Relevant places may include:
-
-```text
-package.json
-package-lock.json
-src/config/appConfig.ts
-src-tauri/tauri.conf.json
-src-tauri/Cargo.toml
-```
-
-Update npm package metadata with:
-
-```powershell
-npm version X.Y.Z --no-git-tag-version
-```
-
-Then synchronize remaining application/Tauri metadata.
-
-Do not show a UI version that differs from the native bundle version.
-
----
-
-# 26. Release checklist
-
-Before distributing a release:
-
-```text
-[ ] npm run format:check passes
-[ ] npm run typecheck passes
-[ ] npm run lint passes
-[ ] npm test passes
-[ ] npm run quality passes
-[ ] npm run quality:full passes
-[ ] npm audit has no unresolved known vulnerabilities
-[ ] npm run tauri:build succeeds
-[ ] production executable starts
-[ ] Dashboard works
-[ ] Device page works
-[ ] Settings page works
-[ ] settings survive restart
-[ ] title bar controls work
-[ ] focus mode works
-[ ] Test Module absent in production
-[ ] Developer settings absent in production
-[ ] DebugPanel absent in production
-[ ] Device connect/disconnect works
-[ ] Simulation EEG works if intentionally shipped
-[ ] no unexpected CSP errors
-[ ] no unexpected Tauri permission errors
-[ ] no uncaught runtime errors
-[ ] version metadata synchronized
-[ ] installer works
-[ ] clean installation starts successfully
-```
-
-For a real EEG adapter additionally verify:
-
-```text
-[ ] device discovery/detection
-[ ] connection
-[ ] repeated connect/disconnect
-[ ] correct sample rate
-[ ] correct channel count
-[ ] correct channel labels
-[ ] correct normalized ordering
-[ ] native/source sample numbers if available
-[ ] stream start/stop
-[ ] disconnect during stream
-[ ] reconnect
-[ ] application shutdown releases hardware
-[ ] long-running stream stability
-[ ] dropped-sample behavior tested
-```
-
----
-
-# 27. Architectural invariants
-
-These rules should remain true as KNeuron grows.
-
-## Invariant 1
-
-`App.tsx` does not know individual hardware manufacturers.
-
-## Invariant 2
-
-`DeviceManager` does not know individual hardware manufacturers.
-
-## Invariant 3
-
-Modules do not import concrete hardware adapters.
-
-## Invariant 4
-
-EEG modules request channels by label.
-
-They do not depend on native headset indexes.
-
-## Invariant 5
-
-One physical EEG stream may serve many module consumers.
-
-## Invariant 6
-
-Every acquired EEG stream handle must eventually be released.
-
-## Invariant 7
-
-Adding a production module does not require adding module-specific conditions to `ModuleHost`, Dashboard or `App.tsx`.
-
-## Invariant 8
-
-Adding a new EEG adapter does not require manufacturer-specific changes in `DeviceManager` or `EEGStreamService`.
-
-## Invariant 9
-
-Development-only functionality must not leak into production.
-
-## Invariant 10
-
-Tauri permissions follow least privilege.
-
-## Invariant 11
-
-Every new device adapter receives automated tests.
-
-## Invariant 12
-
-Every new shared core service receives automated tests.
-
-## Invariant 13
-
-Public extension contracts and workflows must be documented here.
-
----
-
-# 28. Common mistakes
-
-## Manufacturer-specific DeviceManager logic
-
-Wrong:
+Bad:
 
 ```ts
-if (deviceId === "brainaccess") {
-  connectBrainAccess();
-}
+Command.sidecar("brainaccess-bridge").spawn();
 ```
 
-Correct:
+inside React module code.
+
+Prefer:
 
 ```text
-BrainAccessAdapter contains BrainAccess behavior.
-DeviceManager only sees EEGDeviceAdapter.
-```
-
----
-
-## Concrete hardware import inside a module
-
-Wrong:
-
-```ts
-import {
-  BrainAccessAdapter,
-} from "...";
-```
-
-Correct:
-
-```ts
-import {
-  eegStreamService,
-} from "../../core/eeg";
-```
-
----
-
-## Hard-coded EEG indexes
-
-Wrong:
-
-```ts
-const oz = values[6];
-```
-
-Correct:
-
-```ts
-channels: ["Oz"]
-```
-
----
-
-## Starting a hardware stream independently in every module
-
-Wrong:
-
-```text
-Cortex starts device stream
-SSVEP starts another
-Miner starts another
-```
-
-Correct:
-
-```text
-all consumers use EEGStreamService
-```
-
----
-
-## Forgetting `release()`
-
-Every successful:
-
-```ts
-eegStreamService.acquire(...)
-```
-
-must eventually have:
-
-```ts
-handle.release()
-```
-
----
-
-## Adding modules directly to `App.tsx`
-
-Wrong:
-
-```tsx
-if (moduleId === "cortex") {
-  return <CortexModule />;
-}
-```
-
-Correct:
-
-```text
-module definition
-→ built-in registration
-→ component registry
-→ ModuleHost
-```
-
----
-
-## Editing DeviceManager for every headset
-
-If a new headset requires:
-
-```text
-if manufacturer === ...
-```
-
-inside `DeviceManager`, the adapter abstraction is probably broken.
-
----
-
-## Confusing `index` and `sourceIndex`
-
-```text
-index
-= normalized KNeuron stream position
-
-sourceIndex
-= hardware/native mapping
-```
-
-Modules use normalized labels and KNeuron ordering.
-
----
-
-## Treating the simulator as real EEG
-
-Simulation EEG is intended for:
-
-```text
-architecture tests
-UI tests
-module integration
-pipeline testing
-```
-
-It is not physiological validation.
-
----
-
-# 29. Planned modules
-
-## Cortex 3D
-
-Expected structure:
-
-```text
-src/modules/cortex/
-├── CortexModule.tsx
-├── cortexManifest.ts
-├── cortexModuleDefinition.ts
-├── components/
-├── hooks/
-├── eeg/
-├── rendering/
-├── styles/
-└── tests/
-```
-
-Planned functionality:
-
-- interactive brain
-- Three.js renderer
-- real-time EEG activity
-- electrode positions
-- hotspot color mapping
-- possible mesh deformation
-- EEG band visualization
-- Simulation / LIVE mode
-- edit mode
-- persistent electrode editing
-- render quality LOW / MEDIUM / HIGH
-- brain mesh based on fsaverage assets
-
-Cortex should use the common EEG service, typically:
-
-```ts
-channels: "all"
-```
-
-It must not know whether the active device is Simulation EEG, BrainAccess or another adapter.
-
----
-
-## SSVEP Control
-
-Planned functionality:
-
-- 4-direction interface
-- configurable frequencies
-- configurable analysis window
-- FBCCA
-- SNR / quality information
-- future LIVE BrainAccess support
-
-Typical requested channels:
-
-```text
-O1
-O2
-Oz
-PO3
-PO4
-POz
-```
-
-It should acquire:
-
-```ts
-channels: [
-  "O1",
-  "O2",
-  "Oz",
-  "PO3",
-  "PO4",
-  "POz",
-]
-```
-
----
-
-## Miner
-
-Miner should use the SSVEP infrastructure.
-
-Desired dependency direction:
-
-```text
-Miner
+module
   ↓
-SSVEP processing/service
+core service / adapter
   ↓
-EEGStreamService
+bridge
   ↓
-active EEG adapter
+sidecar
 ```
 
-The game must not contain BrainAccess-specific logic.
-
----
-
-# 30. Quick command reference
-
-Install:
-
-```powershell
-npm install
-```
-
-Development:
-
-```powershell
-npm run tauri:dev
-```
-
-Frontend only:
-
-```powershell
-npm run dev
-```
-
-Format:
-
-```powershell
-npm run format
-```
-
-Type checking:
-
-```powershell
-npm run typecheck
-```
-
-Tests:
-
-```powershell
-npm test
-```
-
-Watch tests:
-
-```powershell
-npm run test:watch
-```
-
-Coverage:
-
-```powershell
-npm run test:coverage
-```
-
-Lint:
-
-```powershell
-npm run lint
-```
-
-Complete frontend quality:
-
-```powershell
-npm run quality
-```
-
-Frontend + Rust quality:
-
-```powershell
-npm run quality:full
-```
-
-Security check:
-
-```powershell
-npm audit
-```
-
-Production build:
-
-```powershell
-npm run tauri:build
-```
-
----
-
-# Documentation maintenance rule
-
-Update this README in the same change whenever one of the following public contracts or workflows changes:
+Bad:
 
 ```text
-KNeuronModuleManifest
-KNeuronModuleDefinition
-ModuleComponentRegistry
-registerModuleDefinition
-registerBuiltInModules
-DeviceAdapter
-EEGDeviceAdapter
-DeviceRegistry
-DeviceManager
-EEGSampleBatch
-EEGRingBuffer
-EEGStreamService
-channel selection
-device registration
-module registration
-Tauri capabilities
-build commands
-quality commands
-release process
+Dashboard hard-coded device list
++ DeviceManager registry
++ module-local device list
 ```
 
-The intended standard is:
+There should be one canonical production registration path for each type of extension.
 
-> A new contributor should be able to understand the system and correctly add a module or hardware adapter by following this README without reverse-engineering the entire repository.
+---
+
+---
+
+# Project status
+
+- [x] modular Tauri/React shell
+- [x] production device registry
+- [x] BrainAccess integration
+- [x] BrainLink Lite integration
+- [x] shared EEG stream service
+- [x] Cortex 3D
+- [x] live EEG visualization
+- [x] calibration and baseline normalization
+- [x] TaaLON Miner
+- [x] FBCCA classifier sidecar
+- [x] Neuorrun Unity WebGL integration
+- [x] BrainLink attention/meditation bridge
+- [x] Windows sidecar packaging
+- [x] Windows bootstrap script
+- [x] Linux bootstrap script
+- [x] developer extension guide
+- [x] device/module/sidecar implementation guide
+- [x] lifecycle/cleanup rules and extension checklists
+
+---
+
+# Research / educational use
+
+KNeuron is developed as a scientific student project for experimentation with EEG and brain-computer interfaces.
+
+It is not a medical device and is not intended for diagnosis, treatment, or clinical decision-making.
+
+---
+
+## KNeuron
+
+**Modular Brain-Computer Interface Platform**

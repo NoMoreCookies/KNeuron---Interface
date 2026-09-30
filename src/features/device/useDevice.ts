@@ -59,6 +59,12 @@ export function useDevice() {
     .sort()
     .join("|");
 
+  const metadataRefreshKey = [
+    registryKey,
+    snapshot.activeDeviceId ?? "",
+    snapshot.activeStatus?.state ?? "",
+  ].join("|");
+
   /**
    * Load optional EEG metadata for registered EEG adapters.
    *
@@ -97,7 +103,7 @@ export function useDevice() {
     return () => {
       cancelled = true;
     };
-  }, [registryKey]);
+  }, [metadataRefreshKey]);
 
   /**
    * Connects a device through DeviceManager.

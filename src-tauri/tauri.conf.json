@@ -3,14 +3,12 @@
   "productName": "KNeuron",
   "version": "0.2.7",
   "identifier": "pl.kneuron.desktop",
-
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
-
   "app": {
     "windows": [
       {
@@ -27,34 +25,32 @@
         "backgroundColor": "#030A12"
       }
     ],
-
     "security": {
       "capabilities": [
         "main-capability"
       ],
-
       "freezePrototype": true,
-
       "csp": {
         "default-src": "'self'",
-        "script-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self'",
         "img-src": "'self' data:",
         "font-src": "'self'",
-        "connect-src": "'self' ipc: http://ipc.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost blob:",
+        "worker-src": "'self' blob:",
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",
         "frame-src": "'none'"
       },
-
       "devCsp": {
         "default-src": "'self'",
-        "script-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data:",
         "font-src": "'self'",
-        "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:1420",
+        "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:1420 blob:",
+        "worker-src": "'self' blob:",
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",
@@ -62,11 +58,15 @@
       }
     }
   },
-
   "bundle": {
     "active": true,
     "targets": [
       "nsis"
+    ],
+    "externalBin": [
+      "binaries/brainaccess-bridge",
+      "binaries/ssvep-classifier",
+      "binaries/brainlink-bridge"
     ],
     "category": "DeveloperTool",
     "shortDescription": "Modular brain-computer interface platform",

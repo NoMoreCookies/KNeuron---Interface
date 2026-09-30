@@ -1,0 +1,12 @@
+{
+  "ready": true,
+  "loader": "Build/NeuorrunWebGL.loader.js",
+  "data": "Build/NeuorrunWebGL.data",
+  "framework": "Build/NeuorrunWebGL.framework.js",
+  "code": "Build/NeuorrunWebGL.wasm",
+  "symbols": null,
+  "streamingAssets": null,
+  "companyName": "KNeuron",
+  "productName": "Neuorrun",
+  "productVersion": "1.0"
+}
