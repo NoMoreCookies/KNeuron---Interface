@@ -682,6 +682,7 @@ generated executables
 They are build artifacts, not application source.
 
 ### `src-tauri/binaries/*
+
 !src-tauri/binaries/.gitkeep`
 
 The platform-specific sidecar executables can be rebuilt locally by the bootstrap/build scripts:
@@ -1473,9 +1474,7 @@ The existing contract contains the project-level module identity and capabilitie
 A typical manifest follows this pattern:
 
 ```ts
-import type {
-  KNeuronModuleManifest,
-} from "../../types/module";
+import type { KNeuronModuleManifest } from "../../types/module";
 
 export const neurofeedbackManifest: KNeuronModuleManifest = {
   schemaVersion: 1,
@@ -1486,8 +1485,7 @@ export const neurofeedbackManifest: KNeuronModuleManifest = {
 
   version: "1.0.0",
 
-  description:
-    "Example EEG neurofeedback module.",
+  description: "Example EEG neurofeedback module.",
 
   category: "VISUALIZATION",
 
@@ -1520,21 +1518,14 @@ The current module component contract uses `KNeuronModuleProps`.
 Example:
 
 ```tsx
-import type {
-  KNeuronModuleProps,
-} from "../../features/modules/moduleDefinition";
+import type { KNeuronModuleProps } from "../../features/modules/moduleDefinition";
 
-export function NeurofeedbackModule({
-  onRequestClose,
-}: KNeuronModuleProps) {
+export function NeurofeedbackModule({ onRequestClose }: KNeuronModuleProps) {
   return (
     <section>
       <h1>Neurofeedback</h1>
 
-      <button
-        type="button"
-        onClick={onRequestClose}
-      >
+      <button type="button" onClick={onRequestClose}>
         Close
       </button>
     </section>
@@ -1551,20 +1542,13 @@ The production module registry operates on complete definitions.
 Example:
 
 ```ts
-import {
-  NeurofeedbackModule,
-} from "./NeurofeedbackModule";
+import { NeurofeedbackModule } from "./NeurofeedbackModule";
 
-import {
-  neurofeedbackManifest,
-} from "./neurofeedbackManifest";
+import { neurofeedbackManifest } from "./neurofeedbackManifest";
 
-import type {
-  KNeuronModuleDefinition,
-} from "../../features/modules/moduleDefinition";
+import type { KNeuronModuleDefinition } from "../../features/modules/moduleDefinition";
 
-export const neurofeedbackModuleDefinition:
-  KNeuronModuleDefinition = {
+export const neurofeedbackModuleDefinition: KNeuronModuleDefinition = {
   manifest: neurofeedbackManifest,
   component: NeurofeedbackModule,
 };
@@ -1587,9 +1571,7 @@ src/features/modules/registerBuiltInModules.ts
 Import the definition there:
 
 ```ts
-import {
-  neurofeedbackModuleDefinition,
-} from "../../modules/neurofeedback/neurofeedbackModuleDefinition";
+import { neurofeedbackModuleDefinition } from "../../modules/neurofeedback/neurofeedbackModuleDefinition";
 ```
 
 and include it in the returned/registered definitions using the same pattern as the existing Cortex, Miner and Neuorrun definitions.
@@ -1653,9 +1635,7 @@ Declare normalized EEG labels, not physical device indexes.
 Allowed:
 
 ```ts
-import {
-  eegStreamService,
-} from "../../core/eeg";
+import { eegStreamService } from "../../core/eeg";
 ```
 
 Not allowed:
@@ -1696,10 +1676,7 @@ const handle = await eegStreamService.acquire({
 Read a buffered historical window:
 
 ```ts
-const window = eegStreamService.getLatestWindow(
-  2.0,
-  ["O1", "Oz", "O2"],
-);
+const window = eegStreamService.getLatestWindow(2.0, ["O1", "Oz", "O2"]);
 ```
 
 Do not create another global hardware ring buffer inside the module.
@@ -1862,9 +1839,7 @@ src/core/devices/adapters/openbci/
 For raw EEG:
 
 ```ts
-export class OpenBCIAdapter
-  implements EEGDeviceAdapter
-{
+export class OpenBCIAdapter implements EEGDeviceAdapter {
   // ...
 }
 ```
@@ -2165,19 +2140,19 @@ one JSON message per line
 Example request:
 
 ```json
-{"id":17,"command":"status"}
+{ "id": 17, "command": "status" }
 ```
 
 Example response:
 
 ```json
-{"id":17,"ok":true,"result":{"state":"connected"}}
+{ "id": 17, "ok": true, "result": { "state": "connected" } }
 ```
 
 Example asynchronous event:
 
 ```json
-{"event":"samples","payload":{"sampleRateHz":250,"sampleCount":8}}
+{ "event": "samples", "payload": { "sampleRateHz": 250, "sampleCount": 8 } }
 ```
 
 The exact commands belong to the sidecar/TypeScript bridge protocol.
@@ -2450,19 +2425,19 @@ git grep -n "brainaccess-bridge" src-tauri
 
 Resource ownership must always be explicit.
 
-| Resource | Owner | Required cleanup |
-| --- | --- | --- |
-| Physical device connection | Adapter / DeviceManager | disconnect |
-| Physical raw EEG stream | EEGStreamService + adapter | stop after final consumer |
-| EEG consumer | Module/hook calling `acquire()` | `handle.release()` |
-| Brain-metrics subscription | Module/hook | unsubscribe |
-| Python sidecar process | TypeScript bridge/adapter | terminate |
-| Classifier request | classifier client/service | resolve/reject/cancel |
-| DOM listener | component/hook | remove listener |
-| Timer | creator | clear timer |
-| `requestAnimationFrame` | renderer/module | cancel frame |
-| Three.js resource | renderer/module/cache | dispose when not shared |
-| Unity bridge listener | Neuorrun integration | remove hook |
+| Resource                   | Owner                           | Required cleanup          |
+| -------------------------- | ------------------------------- | ------------------------- |
+| Physical device connection | Adapter / DeviceManager         | disconnect                |
+| Physical raw EEG stream    | EEGStreamService + adapter      | stop after final consumer |
+| EEG consumer               | Module/hook calling `acquire()` | `handle.release()`        |
+| Brain-metrics subscription | Module/hook                     | unsubscribe               |
+| Python sidecar process     | TypeScript bridge/adapter       | terminate                 |
+| Classifier request         | classifier client/service       | resolve/reject/cancel     |
+| DOM listener               | component/hook                  | remove listener           |
+| Timer                      | creator                         | clear timer               |
+| `requestAnimationFrame`    | renderer/module                 | cancel frame              |
+| Three.js resource          | renderer/module/cache           | dispose when not shared   |
+| Unity bridge listener      | Neuorrun integration            | remove hook               |
 
 ## Shared EEG lifecycle
 

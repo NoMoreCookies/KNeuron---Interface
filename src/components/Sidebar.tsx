@@ -1,4 +1,4 @@
-import { AppWindow, Cpu, FolderClock, LayoutDashboard, Settings } from "lucide-react";
+import { Cpu, LayoutDashboard, Settings } from "lucide-react";
 import type { ShellPage } from "../types/navigation";
 import { APP_CONFIG } from "../config/appConfig";
 

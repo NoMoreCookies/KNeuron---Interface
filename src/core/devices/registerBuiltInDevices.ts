@@ -1,18 +1,10 @@
-import {
-  BrainAccessEEGAdapter,
-} from "./adapters/brainaccess/BrainAccessEEGAdapter";
+import { BrainAccessEEGAdapter } from "./adapters/brainaccess/BrainAccessEEGAdapter";
 
-import {
-  BrainLinkAdapter,
-} from "./adapters/brainlink/BrainLinkAdapter";
+import { BrainLinkAdapter } from "./adapters/brainlink/BrainLinkAdapter";
 
-import type {
-  DeviceAdapter,
-} from "./contracts/DeviceAdapter";
+import type { DeviceAdapter } from "./contracts/DeviceAdapter";
 
-import {
-  deviceRegistry,
-} from "./deviceRegistry";
+import { deviceRegistry } from "./deviceRegistry";
 
 /**
  * Production hardware bundled with KNeuron.
@@ -20,10 +12,7 @@ import {
  * Simulation EEG was intentionally removed from the production Device page.
  */
 function createBuiltInDevices(): DeviceAdapter[] {
-  return [
-    new BrainAccessEEGAdapter(),
-    new BrainLinkAdapter(),
-  ];
+  return [new BrainAccessEEGAdapter(), new BrainLinkAdapter()];
 }
 
 export function registerBuiltInDevices(): void {

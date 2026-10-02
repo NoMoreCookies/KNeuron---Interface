@@ -1,21 +1,10 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  KNeuronModuleProps,
-} from "../../features/modules/moduleDefinition";
+import type { KNeuronModuleProps } from "../../features/modules/moduleDefinition";
 
-import type {
-  BrainMetricsSnapshot,
-} from "../../core/brainMetrics";
+import type { BrainMetricsSnapshot } from "../../core/brainMetrics";
 
-import {
-  useBrainMetrics,
-} from "./hooks/useBrainMetrics";
+import { useBrainMetrics } from "./hooks/useBrainMetrics";
 
 import "./styles/neuorrun.css";
 
@@ -33,11 +22,7 @@ interface UnityBuildManifest {
 }
 
 interface UnityInstance {
-  SendMessage(
-    objectName: string,
-    methodName: string,
-    value?: string | number,
-  ): void;
+  SendMessage(objectName: string, methodName: string, value?: string | number): void;
 
   Quit(): Promise<void>;
 }
@@ -66,15 +51,11 @@ function formatMetric(value: number | null | undefined): string {
   return value == null ? "--" : String(value);
 }
 
-export function NeuorrunModule({
-  onRequestClose,
-}: KNeuronModuleProps): JSX.Element {
+export function NeuorrunModule({ onRequestClose }: KNeuronModuleProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const unityRef = useRef<UnityInstance | null>(null);
 
-  const [loadState, setLoadState] = useState<
-    "loading" | "ready" | "missing" | "error"
-  >("loading");
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "missing" | "error">("loading");
 
   const [progress, setProgress] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -100,9 +81,7 @@ export function NeuorrunModule({
         });
 
         if (!response.ok) {
-          throw new Error(
-            `Neuorrun manifest could not be loaded (${response.status}).`,
-          );
+          throw new Error(`Neuorrun manifest could not be loaded (${response.status}).`);
         }
 
         const manifest = (await response.json()) as UnityBuildManifest;
@@ -114,12 +93,7 @@ export function NeuorrunModule({
           return;
         }
 
-        if (
-          !manifest.loader ||
-          !manifest.data ||
-          !manifest.framework ||
-          !manifest.code
-        ) {
+        if (!manifest.loader || !manifest.data || !manifest.framework || !manifest.code) {
           throw new Error("Neuorrun Unity manifest is incomplete.");
         }
 
@@ -135,8 +109,7 @@ export function NeuorrunModule({
             script.async = true;
             script.dataset.kneuronUnityLoader = "neuorrun";
             script.onload = () => resolve();
-            script.onerror = () =>
-              reject(new Error("Neuorrun Unity loader failed to load."));
+            script.onerror = () => reject(new Error("Neuorrun Unity loader failed to load."));
             document.body.appendChild(script);
             loaderScript = script;
           });
@@ -164,15 +137,11 @@ export function NeuorrunModule({
           config.symbolsUrl = `/neuorrun/${manifest.symbols}`;
         }
 
-        const instance = await window.createUnityInstance(
-          canvas,
-          config,
-          (value) => {
-            if (!cancelled) {
-              setProgress(value);
-            }
-          },
-        );
+        const instance = await window.createUnityInstance(canvas, config, (value) => {
+          if (!cancelled) {
+            setProgress(value);
+          }
+        });
 
         if (cancelled) {
           await instance.Quit();
@@ -217,11 +186,7 @@ export function NeuorrunModule({
     }
 
     try {
-      instance.SendMessage(
-        "KNeuronBridge",
-        "SetMetricsJson",
-        metricsPayload(metrics),
-      );
+      instance.SendMessage("KNeuronBridge", "SetMetricsJson", metricsPayload(metrics));
     } catch {
       // Unity may be between scenes for a frame. The next metrics event will
       // retry automatically.
@@ -262,15 +227,15 @@ export function NeuorrunModule({
       </header>
 
       <div className="neuorrun-module__stage">
-      <canvas
-        id="unity-canvas"
-        ref={canvasRef}
-        className="neuorrun-module__canvas"
-        tabIndex={0}
-        onPointerDown={(event) => {
-          event.currentTarget.focus();
-        }}
-      />
+        <canvas
+          id="unity-canvas"
+          ref={canvasRef}
+          className="neuorrun-module__canvas"
+          tabIndex={0}
+          onPointerDown={(event) => {
+            event.currentTarget.focus();
+          }}
+        />
 
         {loadState === "loading" ? (
           <div className="neuorrun-module__overlay">
@@ -288,8 +253,8 @@ export function NeuorrunModule({
             <span>UNITY BUILD REQUIRED</span>
             <h2>Neuorrun assets are not installed yet</h2>
             <p>
-              Build the supplied Unity project for WebGL, then run the package
-              prepare script described in INTEGRATION.md.
+              Build the supplied Unity project for WebGL, then run the package prepare script
+              described in INTEGRATION.md.
             </p>
           </div>
         ) : null}

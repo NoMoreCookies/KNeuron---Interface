@@ -146,11 +146,9 @@ export class EEGStreamService {
     private readonly manager: DeviceManager = deviceManager,
     options: EEGStreamServiceOptions = {},
   ) {
-    this.bufferDurationSeconds =
-      options.bufferDurationSeconds ?? DEFAULT_BUFFER_DURATION_SECONDS;
+    this.bufferDurationSeconds = options.bufferDurationSeconds ?? DEFAULT_BUFFER_DURATION_SECONDS;
 
-    this.stopGracePeriodMs =
-      options.stopGracePeriodMs ?? DEFAULT_STOP_GRACE_PERIOD_MS;
+    this.stopGracePeriodMs = options.stopGracePeriodMs ?? DEFAULT_STOP_GRACE_PERIOD_MS;
 
     if (this.bufferDurationSeconds <= 0) {
       throw new Error("EEG stream buffer duration must be greater than zero.");
@@ -258,14 +256,9 @@ export class EEGStreamService {
 
     const selection = this.resolveSelection(this.streamInfo, requestedChannels);
 
-    const requestedSamples = Math.ceil(
-      durationSeconds * this.streamInfo.sampleRateHz,
-    );
+    const requestedSamples = Math.ceil(durationSeconds * this.streamInfo.sampleRateHz);
 
-    const buffered = this.ringBuffer.readLatest(
-      requestedSamples,
-      selection.indices,
-    );
+    const buffered = this.ringBuffer.readLatest(requestedSamples, selection.indices);
 
     return {
       sampleRateHz: this.streamInfo.sampleRateHz,
@@ -337,24 +330,17 @@ export class EEGStreamService {
    *
    * Must only be called from inside lifecycleQueue.
    */
-  private async activateAdapterUnsafe(
-    adapter: EEGDeviceAdapter,
-  ): Promise<void> {
+  private async activateAdapterUnsafe(adapter: EEGDeviceAdapter): Promise<void> {
     const streamInfo = await adapter.getStreamInfo();
 
     this.validateStreamInfo(streamInfo);
 
     const capacitySamples = Math.max(
       1,
-      Math.ceil(
-        streamInfo.sampleRateHz * this.bufferDurationSeconds,
-      ),
+      Math.ceil(streamInfo.sampleRateHz * this.bufferDurationSeconds),
     );
 
-    const ringBuffer = new EEGRingBuffer(
-      streamInfo.channels.length,
-      capacitySamples,
-    );
+    const ringBuffer = new EEGRingBuffer(streamInfo.channels.length, capacitySamples);
 
     /**
      * Publish the stream state before startStream(), because the adapter can
@@ -428,14 +414,10 @@ export class EEGStreamService {
       if (adapter.isStreaming()) {
         await adapter.stopStream();
 
-        logger.info(
-          "EEGStreamService",
-          `EEG stream stopped: ${adapter.info.id}`,
-        );
+        logger.info("EEGStreamService", `EEG stream stopped: ${adapter.info.id}`);
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
 
       logger.error(
         "EEGStreamService",
@@ -485,68 +467,6 @@ export class EEGStreamService {
      * disconnected.
      */
     return Promise.resolve();
-  }
-
-  /**
-   * Delays physical shutdown to support seamless module hand-off.
-   *
-   * If another consumer appears during the grace period, acquire() cancels
-   * this pending stop and the same BrainAccess stream continues.
-   */
-  private scheduleDeactivateAdapter(): Promise<void> {
-    if (this.pendingStop) {
-      return this.pendingStop.promise;
-    }
-
-    let resolveStop: () => void = () => undefined;
-    let rejectStop: (reason?: unknown) => void = () => undefined;
-
-    const promise = new Promise<void>((resolve, reject) => {
-      resolveStop = resolve;
-      rejectStop = reject;
-    });
-
-    const pending: PendingStop = {
-      timer: null,
-      cancelled: false,
-      promise,
-      resolve: resolveStop,
-      reject: rejectStop,
-    };
-
-    pending.timer = setTimeout(() => {
-      pending.timer = null;
-
-      void this.runLifecycle(async () => {
-        /**
-         * The timer may have fired just as the next module acquired EEG.
-         */
-        if (
-          pending.cancelled ||
-          this.pendingStop !== pending ||
-          this.consumers.size > 0
-        ) {
-          return;
-        }
-
-        await this.deactivateAdapterUnsafe();
-      })
-        .then(() => {
-          pending.resolve();
-        })
-        .catch((error: unknown) => {
-          pending.reject(error);
-        })
-        .finally(() => {
-          if (this.pendingStop === pending) {
-            this.pendingStop = null;
-          }
-        });
-    }, this.stopGracePeriodMs);
-
-    this.pendingStop = pending;
-
-    return pending.promise;
   }
 
   /**
@@ -614,13 +534,9 @@ export class EEGStreamService {
 
       this.ringBuffer.push(batch);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
 
-      logger.error(
-        "EEGStreamService",
-        `Rejected EEG batch: ${message}`,
-      );
+      logger.error("EEGStreamService", `Rejected EEG batch: ${message}`);
 
       return;
     }
@@ -640,22 +556,16 @@ export class EEGStreamService {
         sampleRateHz: batch.sampleRateHz,
         sampleCount: batch.sampleCount,
         channels: consumer.channels,
-        values: consumer.channelIndices.map((channelIndex) => [
-          ...batch.values[channelIndex],
-        ]),
+        values: consumer.channelIndices.map((channelIndex) => [...batch.values[channelIndex]]),
         sourceSampleNumberStart: batch.sourceSampleNumberStart,
       };
 
       try {
         consumer.listener(consumerBatch);
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
 
-        logger.error(
-          "EEGStreamService",
-          `EEG consumer ${consumerId} rejected a batch: ${message}`,
-        );
+        logger.error("EEGStreamService", `EEG consumer ${consumerId} rejected a batch: ${message}`);
       }
     }
   }
@@ -679,9 +589,7 @@ export class EEGStreamService {
     const resolution = resolveEEGChannels(streamInfo, requested);
 
     if (!resolution.complete) {
-      throw new Error(
-        `Missing required EEG channels: ${resolution.missingLabels.join(", ")}.`,
-      );
+      throw new Error(`Missing required EEG channels: ${resolution.missingLabels.join(", ")}.`);
     }
 
     return {
@@ -692,19 +600,13 @@ export class EEGStreamService {
     };
   }
 
-  private validateStreamInfo(
-    streamInfo: Readonly<EEGStreamInfo>,
-  ): void {
+  private validateStreamInfo(streamInfo: Readonly<EEGStreamInfo>): void {
     if (streamInfo.sampleRateHz <= 0) {
-      throw new Error(
-        "EEG stream sample rate must be greater than zero.",
-      );
+      throw new Error("EEG stream sample rate must be greater than zero.");
     }
 
     if (streamInfo.channels.length === 0) {
-      throw new Error(
-        "EEG stream must expose at least one channel.",
-      );
+      throw new Error("EEG stream must expose at least one channel.");
     }
 
     const labels = new Set<string>();
@@ -720,13 +622,10 @@ export class EEGStreamService {
         );
       }
 
-      const normalizedLabel =
-        channel.label.trim().toUpperCase();
+      const normalizedLabel = channel.label.trim().toUpperCase();
 
       if (labels.has(normalizedLabel)) {
-        throw new Error(
-          `Duplicate EEG channel label "${channel.label}".`,
-        );
+        throw new Error(`Duplicate EEG channel label "${channel.label}".`);
       }
 
       labels.add(normalizedLabel);

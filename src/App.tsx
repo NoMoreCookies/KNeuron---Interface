@@ -1,33 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { APP_CONFIG } from "./config/appConfig";
 
 import { TitleBar } from "./components/TitleBar";
-
 import { Sidebar } from "./components/Sidebar";
-
 import { DevicePanel } from "./components/DevicePanel";
 
 import { Dashboard } from "./features/dashboard/Dashboard";
-
 import { DevicePage } from "./features/device/DevicePage";
-
 import { SettingsPage } from "./features/settings/SettingsPage";
-
 import { useSettings } from "./features/settings/useSettings";
 
 import { ModuleHost } from "./features/modules/ModuleHost";
-
 import { ModuleErrorBoundary } from "./features/modules/ModuleErrorBoundary";
 
 import { closeModule, launchModule } from "./features/modules/moduleLauncher";
 
 import { NotificationCenter } from "./features/notifications/NotificationCenter";
-
 import { DebugPanel } from "./features/debug/DebugPanel";
+import { WelcomeScreen } from "./features/welcome/WelcomeScreen";
 
 import { logger } from "./lib/logger";
-
 import { notificationStore } from "./lib/notificationStore";
 
 import type { AppRoute, ShellPage } from "./types/navigation";
@@ -46,10 +39,22 @@ function getErrorMessage(error: unknown): string {
 export default function App() {
   const { settings } = useSettings();
 
+  const [showWelcome, setShowWelcome] = useState(true);
+
   const [route, setRoute] = useState<AppRoute>({
     kind: "shell",
     page: "dashboard",
   });
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setShowWelcome(false);
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, []);
 
   async function handleOpenModule(moduleId: string): Promise<void> {
     try {
@@ -176,6 +181,10 @@ export default function App() {
   const isModuleOpen = route.kind === "module";
 
   const shellClassName = isModuleOpen ? "app-shell app-shell--module-open" : "app-shell";
+
+  if (showWelcome) {
+    return <WelcomeScreen />;
+  }
 
   return (
     <div className={shellClassName}>
