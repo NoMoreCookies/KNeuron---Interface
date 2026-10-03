@@ -315,7 +315,7 @@ No FBCCA is used in Neuorrun.
 # Repository structure
 
 ```text
-KNeuronInterFace/
+KNeuron---Interface/
 │
 ├── brainaccess-sidecar/
 ├── brainlink-sidecar/
@@ -372,7 +372,7 @@ The goal is that after cloning the repository, the development environment and P
 
 ```powershell
 git clone <REPOSITORY_URL>
-cd KNeuronInterFace
+cd KNeuron---Interface
 ```
 
 ### 2. Run the bootstrap
@@ -437,7 +437,7 @@ The included Linux bootstrap targets **Ubuntu/Debian-family distributions** and 
 
 ```bash
 git clone <REPOSITORY_URL>
-cd KNeuronInterFace
+cd KNeuron---Interface
 ```
 
 ### 2. Make the bootstrap executable
