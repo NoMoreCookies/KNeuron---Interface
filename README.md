@@ -362,7 +362,7 @@ KNeuronInterFace/
 
 # Quick start on a new machine
 
-KNeuron includes bootstrap scripts for both Windows and Linux.
+KNeuron is primarily supported and validated on Windows. An experimental Linux bootstrap is also included for development and platform testing.
 
 The goal is that after cloning the repository, the development environment and Python sidecars can be recreated locally instead of storing generated dependencies and build artifacts in Git.
 
@@ -427,9 +427,11 @@ The first build can take significantly longer because Node packages, Rust depend
 
 ---
 
-# Linux quick start
+# Linux experimental setup
 
-The included Linux bootstrap currently targets **Ubuntu/Debian-family distributions**.
+Linux support is currently experimental and has not been validated end-to-end with the full KNeuron hardware stack.
+
+The included Linux bootstrap targets **Ubuntu/Debian-family distributions** and is intended primarily for development and platform testing.
 
 ### 1. Clone the repository
 
@@ -462,7 +464,9 @@ Python virtual environments
 all three Python sidecars
 ```
 
-It also checks device permissions used by serial/Bluetooth devices.
+The script attempts to prepare all three Python sidecars and checks device permissions used by serial/Bluetooth devices.
+
+Successful setup does not guarantee that every hardware integration is supported by the underlying vendor SDK on Linux.
 
 ### Prepare without launching
 
@@ -485,6 +489,8 @@ If the script adds the current user to:
 ```text
 dialout
 ```
+
+BrainAccess support on Linux is not currently considered production-validated. The bootstrap can build the BrainAccess sidecar only if the BrainAccess SDK/dependency used by `brainaccess-sidecar/requirements.txt` is available and compatible with the target Linux environment. Real-device connectivity must be verified separately.
 
 log out and log back in before using serial/RFCOMM devices.
 
@@ -1097,7 +1103,7 @@ Windows NSIS output is typically created under:
 src-tauri/target/release/bundle/nsis/
 ```
 
-Linux package output is created by Tauri under the corresponding bundle directories for the configured Linux targets.
+Linux packaging is currently experimental and should not be treated as a production-supported release path until it has been validated on the target distribution.
 
 ---
 
@@ -2425,30 +2431,32 @@ git grep -n "brainaccess-bridge" src-tauri
 
 Resource ownership must always be explicit.
 
-| Resource                   | Owner                           | Required cleanup          |
-| -------------------------- | ------------------------------- | ------------------------- |
-| Physical device connection | Adapter / DeviceManager         | disconnect                |
-| Physical raw EEG stream    | EEGStreamService + adapter      | stop after final consumer |
-| EEG consumer               | Module/hook calling `acquire()` | `handle.release()`        |
-| Brain-metrics subscription | Module/hook                     | unsubscribe               |
-| Python sidecar process     | TypeScript bridge/adapter       | terminate                 |
-| Classifier request         | classifier client/service       | resolve/reject/cancel     |
-| DOM listener               | component/hook                  | remove listener           |
-| Timer                      | creator                         | clear timer               |
-| `requestAnimationFrame`    | renderer/module                 | cancel frame              |
-| Three.js resource          | renderer/module/cache           | dispose when not shared   |
-| Unity bridge listener      | Neuorrun integration            | remove hook               |
+| Resource                   | Owner                           | Required cleanup                              |
+| -------------------------- | ------------------------------- | --------------------------------------------- |
+| Physical device connection | Adapter / DeviceManager         | disconnect                                    |
+| Physical raw EEG stream    | EEGStreamService + adapter      | stop on device disconnect or service disposal |
+| EEG consumer               | Module/hook calling `acquire()` | `handle.release()`                            |
+| Brain-metrics subscription | Module/hook                     | unsubscribe                                   |
+| Python sidecar process     | TypeScript bridge/adapter       | terminate                                     |
+| Classifier request         | classifier client/service       | resolve/reject/cancel                         |
+| DOM listener               | component/hook                  | remove listener                               |
+| Timer                      | creator                         | clear timer                                   |
+| `requestAnimationFrame`    | renderer/module                 | cancel frame                                  |
+| Three.js resource          | renderer/module/cache           | dispose when not shared                       |
+| Unity bridge listener      | Neuorrun integration            | remove hook                                   |
 
 ## Shared EEG lifecycle
 
-The shared service is reference-counted conceptually:
+The shared service allows multiple modules to consume one physical EEG stream.
 
 ```text
 Cortex acquire
 consumer count = 1
+physical stream starts
         ↓
 Miner acquire
 consumer count = 2
+same physical stream is reused
         ↓
 Cortex release
 consumer count = 1
@@ -2456,8 +2464,13 @@ physical stream remains active
         ↓
 Miner release
 consumer count = 0
+physical stream remains active
+        ↓
+device disconnect / service dispose
 physical stream stops
 ```
+
+A module releasing its handle removes only that consumer. It does not stop the physical EEG acquisition.
 
 Therefore a module must never call:
 
@@ -2467,6 +2480,8 @@ adapter.stopStream()
 
 directly.
 
+`EEGStreamService` owns the physical stream lifecycle and serializes adapter start/stop operations.
+
 ## Device switching
 
 Do not switch to another raw EEG adapter while consumers of the current stream are still active.
@@ -2475,10 +2490,11 @@ Correct order:
 
 ```text
 close/release consuming modules
-stop shared stream through consumer lifecycle
 disconnect old device
 connect new device
 ```
+
+The physical EEG stream is stopped as part of device teardown/disconnect, not by a module's `release()`.
 
 ## Async races
 
@@ -2818,3 +2834,30 @@ It is not a medical device and is not intended for diagnosis, treatment, or clin
 ## KNeuron
 
 **Modular Brain-Computer Interface Platform**
+
+## Neuorrun source
+
+The complete Neuorrun Unity project is maintained in a separate repository:
+
+https://github.com/KN-Neuron/Neurorun
+
+The main KNeuron repository contains only:
+
+- the generated Neuorrun WebGL runtime in `public/neuorrun/`,
+- KNeuron-specific integration code and patches in `unity-patch/`.
+
+Rebuilding Neuorrun requires the source project from the repository above.
+
+# License
+
+Unless otherwise noted, original KNeuron source code is licensed
+under the Apache License 2.0.
+
+See:
+
+- `LICENSE`
+- `NOTICE`
+- `THIRD_PARTY.md`
+
+Third-party software, assets, vendor SDKs and runtime components
+may be subject to separate license terms.
