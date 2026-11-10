@@ -9,13 +9,12 @@ import { useDevice } from "./useDevice";
  * Every registered adapter is rendered through the same interface.
  */
 export function DevicePage() {
-  const { snapshot, streamInfoByDeviceId, connect, disconnect, getStatusForDevice } = useDevice();
+  const { snapshot, connect, disconnect, getStatusForDevice, getBluetoothAddressForDevice } =
+    useDevice();
 
   return (
     <section className="device-page">
       <header className="device-page__header">
-        <span className="eyebrow">KNEURON DEVICE LAYER</span>
-
         <h1>Device</h1>
 
         <p>Manage devices available to KNeuron.</p>
@@ -57,9 +56,9 @@ export function DevicePage() {
                   active={active}
                   busy={snapshot.busy}
                   status={getStatusForDevice(device.id)}
-                  streamInfo={streamInfoByDeviceId[device.id]}
-                  onConnect={() => {
-                    void connect(device.id);
+                  savedBluetoothAddress={getBluetoothAddressForDevice(device.id)}
+                  onConnect={(bluetoothAddress) => {
+                    void connect(device.id, bluetoothAddress);
                   }}
                   onDisconnect={() => {
                     void disconnect();

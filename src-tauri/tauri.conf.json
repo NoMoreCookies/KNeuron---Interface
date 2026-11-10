@@ -22,7 +22,7 @@
         "decorations": false,
         "shadow": true,
         "theme": "Dark",
-        "backgroundColor": "#030A12"
+        "backgroundColor": "#090909"
       }
     ],
     "security": {
@@ -62,7 +62,8 @@
     "externalBin": [
       "binaries/brainaccess-bridge",
       "binaries/ssvep-classifier",
-      "binaries/brainlink-bridge"
+      "binaries/brainlink-bridge",
+      "binaries/neurostate-bridge"
     ],
     "category": "DeveloperTool",
     "shortDescription": "Modular brain-computer interface platform",

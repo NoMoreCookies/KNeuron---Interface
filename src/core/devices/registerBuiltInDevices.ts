@@ -1,4 +1,11 @@
+import { BrainAccessBridge } from "./adapters/brainaccess/BrainAccessBridge";
+
 import { BrainAccessEEGAdapter } from "./adapters/brainaccess/BrainAccessEEGAdapter";
+
+import {
+  BRAINACCESS_MAXI_PROFILE,
+  BRAINACCESS_MIDI_PROFILE,
+} from "./adapters/brainaccess/brainAccessProfiles";
 
 import { BrainLinkAdapter } from "./adapters/brainlink/BrainLinkAdapter";
 
@@ -9,10 +16,17 @@ import { deviceRegistry } from "./deviceRegistry";
 /**
  * Production hardware bundled with KNeuron.
  *
- * Simulation EEG was intentionally removed from the production Device page.
+ * Simulation devices are registered only in development builds so the UI
+ * and modules can be worked on without physical hardware.
  */
 function createBuiltInDevices(): DeviceAdapter[] {
-  return [new BrainAccessEEGAdapter(), new BrainLinkAdapter()];
+  const devices: DeviceAdapter[] = [
+    new BrainAccessEEGAdapter(new BrainAccessBridge(), BRAINACCESS_MAXI_PROFILE),
+    new BrainAccessEEGAdapter(new BrainAccessBridge(), BRAINACCESS_MIDI_PROFILE),
+    new BrainLinkAdapter(),
+  ];
+
+  return devices;
 }
 
 export function registerBuiltInDevices(): void {
